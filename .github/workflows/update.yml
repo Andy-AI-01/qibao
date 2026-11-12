@@ -1,0 +1,40 @@
+name: update-radar
+
+on:
+  schedule:
+    - cron: '35 7 * * 1-5'
+    - cron: '26 1 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: mode
+        id: which
+        run: |
+          H=$(TZ=Asia/Shanghai date +%H%M)
+          if [ "$H" -ge "0900" ] && [ "$H" -le "0940" ]; then
+            echo "mode=auction" >> $GITHUB_OUTPUT
+          else
+            echo "mode=scan" >> $GITHUB_OUTPUT
+          fi
+      - name: scan
+        run: python scan_cloud.py
+      - name: commit
+        run: |
+          git config user.name "radar-bot"
+          git config user.email "radar-bot@users.noreply.github.com"
+          git add docs/data.json docs/data.js docs/auction.json || true
+          if git diff --staged --quiet; then echo "no change"; else
+            git commit -m "radar update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
+            git push
+          fi
