@@ -15,11 +15,11 @@ DOCS = os.path.join(BASE, "docs")
 os.makedirs(DOCS, exist_ok=True)
 HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
        "Connection": "close", "Referer": "https://finance.sina.com.cn/"}
-BARS = 300
-WORKERS = 10
+BARS = 200
+WORKERS = 32
 
 
-def get(url, enc="utf-8", tries=3):
+def get(url, enc="utf-8", tries=2):
     for i in range(tries):
         try:
             return urllib.request.urlopen(
