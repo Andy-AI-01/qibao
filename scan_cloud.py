@@ -99,6 +99,30 @@ def klines(sym):
         return None
 
 
+def bjnow():
+    """北京时间（GitHub 服务器是 UTC）"""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + \
+        datetime.timedelta(hours=8)
+
+
+def indexes():
+    """三大指数"""
+    t = get("https://qt.gtimg.cn/q=sh000001,sz399001,sz399006", enc="gbk")
+    out = []
+    if not t:
+        return out
+    for line in t.split(";"):
+        if "~" not in line:
+            continue
+        f = line.split("~")
+        if len(f) > 32 and f[2]:
+            try:
+                out.append(dict(code=f[2], name=f[1], px=float(f[3]), chg=float(f[32] or 0)))
+            except Exception:
+                pass
+    return out
+
+
 def snapshot(syms):
     raw = {}
 
@@ -138,6 +162,12 @@ def analyse(bars):
     n = len(c)
     if min(c[-5:]) <= 0:
         return None
+    # 复权异常过滤：单日跳变超过 23% 说明前复权数据有问题
+    for i in range(1, n):
+        if c[i - 1] <= 0:
+            return None
+        if abs(c[i] / c[i - 1] - 1) > 0.23:
+            return None
 
     m5, m10, m20 = roll_mean(c, 5), roll_mean(c, 10), roll_mean(c, 20)
     m60, lm = roll_mean(c, 60), roll_mean(c, 120)
@@ -201,25 +231,13 @@ def analyse(bars):
 
 
 def do_auction(uni):
-    syms = [("sh" if s["market"] == 1 else "sz") + s["code"] for s in uni]
-    snap = snapshot(syms)
-    now = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-    hm = now.hour * 100 + now.minute
-    valid = 915 <= hm <= 940
-    nm = {s["code"]: s["name"] for s in uni}
-    items = []
-    for code, q in snap.items():
-        if q["vol"] <= 0 or q["prev"] <= 0:
-            continue
-        items.append(dict(code=code, name=nm.get(code, code), op=round(q["op"], 2),
-                          gap=round((q["op"] / q["prev"] - 1) * 100, 2),
-                          vol=round(q["vol"] / 1e4, 2), amt=round(q["amt"] / 1e4, 1),
-                          ratio=0.0, ratio5=0.0, lv="", in_buy=False, in_boom=False))
+    """云端版不采集竞价（定时任务延迟不可控，采到的不是真实竞价量）"""
+    now = bjnow()
     payload = dict(date=now.strftime("%Y-%m-%d"), time=now.strftime("%H:%M"),
-                   valid=valid, message="" if valid else "非竞价时段", items=items[:1])
+                   valid=False, message="云端版不采集集合竞价，请在本地版查看", items=[])
     json.dump(payload, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
               ensure_ascii=False)
-    print("auction done, valid=%s" % valid)
+    print("auction skipped (cloud version)")
 
 
 def main():
@@ -232,6 +250,7 @@ def main():
         return s, klines(sym)
 
     done = 0
+    ok_fetch = 0
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
         for s, bars in ex.map(work, uni):
             done += 1
@@ -239,22 +258,31 @@ def main():
                 print("  %d/%d" % (done, len(uni)), flush=True)
             if not bars or bars[-1][0] < "2020":
                 continue
+            ok_fetch += 1
             r = analyse(bars)
             if r and r["date"] == bars[-1][0]:
                 r.update(code=s["code"], name=s["name"])
                 rows.append(r)
 
+    ratio = ok_fetch / max(1, len(uni))
+    err = ""
+    if ratio < 0.5:
+        err = "行情数据抓取失败（成功 %d/%d），本次结果不可信，请稍后重跑" % (ok_fetch, len(uni))
+        print("!! " + err, flush=True)
+
     snap = snapshot([("sh" if s["market"] == 1 else "sz") + s["code"] for s in uni])
     up = sum(1 for q in snap.values() if q["chg"] > 0)
     dn = sum(1 for q in snap.values() if q["chg"] < 0)
     rows.sort(key=lambda x: (-x["score"], -x["vol_ratio"]))
-    trade_date = max((r["date"] for r in rows), default=datetime.date.today().isoformat())
+    trade_date = max((r["date"] for r in rows), default=bjnow().strftime("%Y-%m-%d"))
 
-    payload = dict(updated=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    payload = dict(updated=bjnow().strftime("%Y-%m-%d %H:%M:%S"),
                    trade_date=trade_date, universe=len(uni), params={},
                    market=dict(up=up, down=dn, total=len(snap),
-                               temp=round(100.0 * up / max(1, up + dn), 1), indexes=[]),
-                   buy=[], sell=[], boom=rows, history=[], recent=[])
+                               temp=round(100.0 * up / max(1, up + dn), 1),
+                               indexes=indexes()),
+                   buy=[], sell=[], boom=rows, history=[], recent=[],
+                   fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
     open(os.path.join(DOCS, "data.js"), "w", encoding="utf-8").write("window.__DATA__=" + js + ";")
