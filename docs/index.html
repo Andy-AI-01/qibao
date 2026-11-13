@@ -116,7 +116,7 @@ footer b{color:var(--dim)}
   <div class="card"><div class="n" id="idx">--</div><div class="l" id="idxn">上证指数</div></div>
 </div>
 
-<section class="box">
+<section class="box" id="sec-au">
   <div class="box-h">
     <h2 style="color:var(--cyan)">● 集合竞价抢筹</h2>
     <span class="cnt" id="cau">--</span>
@@ -136,7 +136,7 @@ footer b{color:var(--dim)}
   <div class="scroll tall" id="tboom-wrapper"><div id="tboom"></div></div>
 </section>
 
-<section class="box">
+<section class="box" id="sec-bars">
   <div class="box-h"><h2>近 30 日 起爆类信号数</h2>
     <span class="cnt">爆/二爆/二板/生命线</span></div>
   <div class="bars" id="bars"></div>
@@ -216,6 +216,9 @@ function renderAuction(a){
 }
 
 function drawBars(hist){
+  const sec=document.getElementById('sec-bars');
+  if(!hist||!hist.length){ sec.style.display='none'; return; }
+  sec.style.display='';
   const max=Math.max(1,...hist.map(x=>x.b));
   document.getElementById('bars').innerHTML=hist.map(x=>
     `<div class="b" title="${x.d} ${x.b} 个"><i style="height:${x.b/max*100}%"></i></div>`).join('');
@@ -225,6 +228,16 @@ function drawBars(hist){
 
 function apply(d){
   DATA=d; const m=d.market||{};
+  const errEl=document.getElementById('err');
+  if(d.error){
+    errEl.style.display='block';
+    errEl.style.background='rgba(255,77,94,.12)';
+    errEl.style.borderColor='rgba(255,77,94,.5)';
+    errEl.style.color='#ff8b96';
+    errEl.textContent='⚠ '+d.error;
+  }else if(errEl.textContent.indexOf('⚠')===0){
+    errEl.style.display='none';
+  }
   document.getElementById('td').textContent=d.trade_date;
   document.getElementById('upd').textContent=(d.updated||'').slice(11);
   document.getElementById('uni').textContent=d.universe;
@@ -258,7 +271,7 @@ async function loadData(){
       const w=document.querySelector('.wrap');
       w.classList.remove('flash'); void w.offsetWidth; w.classList.add('flash');
     }
-    document.getElementById('err').style.display='none';
+    if(!d.error) document.getElementById('err').style.display='none';
   }catch(e){
     if(window.__DATA__){
       if(!DATA) apply(window.__DATA__);
@@ -273,10 +286,15 @@ async function loadData(){
   }
 }
 async function loadAuction(){
+  const sec=document.getElementById('sec-au');
   try{
     const r=await fetch('./auction.json?t='+Date.now(),{cache:'no-store'});
-    if(r.ok) renderAuction(await r.json()); else renderAuction(null);
-  }catch(e){ renderAuction(window.__AUCTION__||null); }
+    if(r.ok){ renderAuction(await r.json()); sec.style.display=''; }
+    else { sec.style.display='none'; }        // 没有竞价数据（云端版）就整块隐藏
+  }catch(e){
+    if(window.__AUCTION__){ renderAuction(window.__AUCTION__); sec.style.display=''; }
+    else sec.style.display='none';
+  }
 }
 document.getElementById('qm').addEventListener('input',e=>{
   if(DATA) renderBoom(DATA.boom||[],e.target.value);
