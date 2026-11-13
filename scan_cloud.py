@@ -123,6 +123,83 @@ def indexes():
     return out
 
 
+def em_get(url, timeout=15):
+    try:
+        return urllib.request.urlopen(
+            urllib.request.Request(url, headers=HDR), timeout=timeout).read().decode("utf-8", "ignore")
+    except Exception:
+        return None
+
+
+ZT_UT = "7eea3edcaed734bea9cbfc24409ed989"
+
+
+def _pool(path, date_str, sort="fbt%3Aasc"):
+    u = ("https://push2ex.eastmoney.com/%s?ut=%s&dpt=wz.ztzt&Pageindex=0&pagesize=500"
+         "&sort=%s&date=%s" % (path, ZT_UT, sort, date_str))
+    t = em_get(u)
+    if not t:
+        return []
+    try:
+        return (json.loads(t).get("data") or {}).get("pool") or []
+    except Exception:
+        return []
+
+
+def zt_pool(d):
+    return _pool("getTopicZTPool", d, "fbt%3Aasc")
+
+
+def zb_pool(d):
+    return _pool("getTopicZBPool", d, "fbt%3Aasc")
+
+
+def dt_pool(d):
+    return _pool("getTopicDTPool", d, "fund%3Aasc")
+
+
+def industry_map(uni):
+    """代码->行业。优先读本地 industry.json（一次抓取永久复用），没有再联网抓"""
+    f = os.path.join(DOCS, "industry.json")
+    if os.path.exists(f):
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+            if len(d) >= len(uni) * 0.6:
+                return d
+        except Exception:
+            pass
+
+    out = {}
+    pairs = [("1." if s["market"] == 1 else "0.") + s["code"] for s in uni]
+    base = ("https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2"
+            "&fields=f12,f100&secids=")
+    chunks = [pairs[i:i + 100] for i in range(0, len(pairs), 100)]
+    for i, ch in enumerate(chunks):
+        t = em_get(base + ",".join(ch), timeout=12)
+        if not t:
+            time.sleep(0.4)
+            continue
+        try:
+            diff = (json.loads(t).get("data") or {}).get("diff") or []
+            if isinstance(diff, dict):
+                diff = [diff]
+            for it in diff:
+                c, ind = it.get("f12"), it.get("f100")
+                if c and ind and ind != "-":
+                    out[str(c)] = ind
+        except Exception:
+            pass
+        time.sleep(0.12)
+
+    if len(out) >= len(uni) * 0.6:
+        try:
+            json.dump(out, open(f, "w", encoding="utf-8"), ensure_ascii=False)
+            print("  行业表已缓存 %d 条 -> docs/industry.json" % len(out), flush=True)
+        except Exception:
+            pass
+    return out
+
+
 def snapshot(syms):
     raw = {}
 
@@ -174,6 +251,7 @@ def analyse(bars):
     vma20, vma60, vma5 = roll_mean(v, 20), roll_mean(v, 60), roll_mean(v, 5)
     hh20, ll20 = roll_ext(c, 20, True), roll_ext(l, 20, False)
     ll30, ll60 = roll_ext(l, 30, False), roll_ext(l, 60, False)
+    hh60 = roll_ext(h, 60, True)
 
     t = n - 1
     for arr in (m5, m10, m20, m60, vma20, ll20, ll30, ll60):
@@ -211,18 +289,26 @@ def analyse(bars):
         c[t - 3] >= Z(m20, t - 3)
     XL = l[t] <= Z(ll60, t)
 
+    # 长期横盘后的爆量突破箱体
+    plat_w = 0.0
+    if hh60[t - 1] and ll60[t - 1] and ll60[t - 1] > 0:
+        plat_w = (hh60[t - 1] - ll60[t - 1]) / ll60[t - 1]
+    BOX = (0 < plat_w <= 0.30 and c[t] > Z(hh60, t - 1)
+           and v[t] >= Z(vma60, t - 1) * 2.5 and chg >= 0.04)
+
     tags = []
     if BOOM: tags.append("爆")
     if (A2 or B2) and hb: tags.append("二爆")
     if C2: tags.append("二板")
     if ADDX: tags.append("加仓")
     if LIFE2: tags.append("生命线")
+    if BOX: tags.append("横盘突破")
     if XL: tags.append("新低")
     if CUT: tags.append("清仓")
     if not tags:
         return None
     score = ("爆" in tags) + ("二爆" in tags) * 3 + ("二板" in tags) * 2 + \
-        ("加仓" in tags) * 2 + ("生命线" in tags) * 3 - ("清仓" in tags) * 2
+        ("加仓" in tags) * 2 + ("生命线" in tags) * 3 + ("横盘突破" in tags) * 3 - ("清仓" in tags) * 2
     return dict(date=d[t], close=round(c[t], 2), chg=round(chg * 100, 2), tags=tags,
                 score=score, vol_ratio=round(v[t] / Z(vma20, t), 2),
                 ma20_gap=round((c[t] / Z(m20, t) - 1) * 100, 2),
@@ -243,6 +329,8 @@ def do_auction(uni):
 def main():
     uni = universe()
     print("universe %d" % len(uni), flush=True)
+    ind_map = industry_map(uni)      # 先取行业，避免后续请求把它限流
+    print("行业映射 %d" % len(ind_map), flush=True)
     rows = []
 
     def work(s):
@@ -276,12 +364,109 @@ def main():
     rows.sort(key=lambda x: (-x["score"], -x["vol_ratio"]))
     trade_date = max((r["date"] for r in rows), default=bjnow().strftime("%Y-%m-%d"))
 
+    # ---------------- 涨停池 / 连板梯队 / 催化 / 情绪 ----------------
+    dstr = bjnow().strftime("%Y%m%d")
+    zt = zt_pool(dstr)
+    zb = zb_pool(dstr)
+    dtp = dt_pool(dstr)
+    print("涨停 %d 炸板 %d 跌停 %d 行业映射 %d" % (len(zt), len(zb), len(dtp), len(ind_map)), flush=True)
+
+    ind_stat = {}
+    for x in zt:
+        h = x.get("hybk") or ind_map.get(str(x.get("c"))) or "其他"
+        e = ind_stat.setdefault(h, {"n": 0, "max_lb": 0, "names": []})
+        e["n"] += 1
+        lb = int(x.get("lbc") or 1)
+        e["max_lb"] = max(e["max_lb"], lb)
+        if len(e["names"]) < 3:
+            e["names"].append(x.get("n"))
+    for h, e in ind_stat.items():
+        e["cat"] = "强催化" if e["n"] >= 4 else ("中催化" if e["n"] >= 2 else "弱催化")
+
+    ztmap = {str(x.get("c")): x for x in zt}
+    for r in rows:
+        z = ztmap.get(r["code"])
+        r["lbc"] = int(z.get("lbc") or 0) if z else 0
+        r["ind"] = (z.get("hybk") if z else None) or ind_map.get(r["code"], "") or ""
+        r["cat"] = ind_stat.get(r["ind"], {}).get("cat", "") if r["ind"] else ""
+        tj = (z or {}).get("zttj") or {}
+        r["ztj"] = ("%d天%d板" % (tj.get("days", 0), tj.get("ct", 0))) if tj else ""
+
+    def grade(x):
+        lb = int(x.get("lbc") or 1)
+        zbc = int(x.get("zbc") or 0)
+        fbt = int(x.get("fbt") or 0)
+        ltsz = float(x.get("ltsz") or 0)
+        fund = float(x.get("fund") or 0)
+        hs = float(x.get("hs") or 0)
+        ind = x.get("hybk") or ""
+        cat = ind_stat.get(ind, {}).get("cat", "")
+        ratio = (fund / ltsz) if ltsz else 0
+        dims = [("连板≥3", lb >= 3), ("0炸板", zbc == 0), ("10点前封", 0 < fbt <= 100000),
+                ("封单≥1%", ratio >= 0.01), ("强催化", cat == "强催化"),
+                ("换手3-15%", 3 <= hs <= 15)]
+        sc = sum(1 for _, ok in dims if ok)
+        miss = [n for n, ok in dims if not ok]
+        if hs < 3:
+            bt = "缩量板"
+        elif hs <= 10:
+            bt = "温和换手"
+        elif hs <= 20:
+            bt = "高换手"
+        else:
+            bt = "巨量板"
+        return sc, miss, ratio, bt
+
+    ladder = {"1": [], "2": [], "3": [], "4+": []}
+    for x in zt:
+        lb = int(x.get("lbc") or 1)
+        k = "4+" if lb >= 4 else str(lb)
+        ind = x.get("hybk") or ""
+        ladder[k].append(dict(
+            code=str(x.get("c")), name=x.get("n"), ind=ind, lb=lb,
+            fbt=int(x.get("fbt") or 0),
+            fund=round(float(x.get("fund") or 0) / 1e8, 2),
+            zbc=int(x.get("zbc") or 0),
+            hs=round(float(x.get("hs") or 0), 2),
+            ltsz=float(x.get("ltsz") or 0),
+            cat=ind_stat.get(ind, {}).get("cat", "")))
+        _g = grade(x)
+        ladder[k][-1].update(bt=_g[3], score=_g[0])
+    for k in ladder:
+        ladder[k].sort(key=lambda z: (z["fbt"] if z["fbt"] else 999999))
+
+    # ---------- 六维打分：找"没有短板"的龙头 ----------
+    graded = []
+    for x in zt:
+        sc, miss, ratio, bt = grade(x)
+        graded.append(dict(code=str(x.get("c")), name=x.get("n"),
+                           ind=x.get("hybk") or "", lb=int(x.get("lbc") or 1),
+                           fbt=int(x.get("fbt") or 0),
+                           fund=round(float(x.get("fund") or 0) / 1e8, 2),
+                           zbc=int(x.get("zbc") or 0),
+                           hs=round(float(x.get("hs") or 0), 2),
+                           seal=round(ratio * 100, 2), score=sc, miss=miss, bt=bt))
+    graded.sort(key=lambda z: (-z["score"], -z["lb"], z["fbt"] if z["fbt"] else 999999))
+    leaders = [z for z in graded if z["score"] >= 4][:3]
+
+    ind_top = sorted(
+        [dict(name=h, n=e["n"], max_lb=e["max_lb"], cat=e["cat"], names=e["names"])
+         for h, e in ind_stat.items()],
+        key=lambda x: (-x["n"], -x["max_lb"]))[:12]
+
+    zb_rate = len(zb) / max(1, len(zt) + len(zb))
+    max_lb = max([int(x.get("lbc") or 1) for x in zt], default=0)
+    strong = (len(zt) >= 45 and zb_rate <= 0.35 and max_lb >= 4)
+    sent = dict(level="强情绪" if strong else "弱情绪", zt=len(zt), zb=len(zb),
+                dt=len(dtp), zb_rate=round(zb_rate * 100, 1), max_lb=max_lb)
+
     payload = dict(updated=bjnow().strftime("%Y-%m-%d %H:%M:%S"),
                    trade_date=trade_date, universe=len(uni), params={},
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    buy=[], sell=[], boom=rows, history=[], recent=[],
+                   ladder=ladder, leaders=leaders, ind_top=ind_top, sentiment=sent,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
