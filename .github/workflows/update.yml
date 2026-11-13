@@ -2,16 +2,23 @@ name: update-radar
 
 on:
   schedule:
+    # 盘中每 15 分钟（UTC 01:00-06:45 = 北京 09:00-14:45）
+    - cron: '*/15 1-6 * * 1-5'
+    # 收盘后定稿（UTC 07:35 = 北京 15:35）
     - cron: '35 7 * * 1-5'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: radar
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -21,10 +28,10 @@ jobs:
 
       - name: scan
         run: |
-          echo "=== 扫描前 ==="
+          echo "=== before ==="
           ls -la
           python scan_cloud.py
-          echo "=== 扫描后 docs ==="
+          echo "=== after ==="
           ls -la docs
 
       - name: verify
