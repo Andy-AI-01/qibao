@@ -207,9 +207,11 @@ footer b{color:var(--dim)}
 </section>
 
 <footer>
-<b>口径</b>：黄▲一爆（涨≥6%+1.8倍量+站上20线）；红▲二爆（深洗后放量收复5日线 / 强洗不破20线后放量破前高，且 MACD 零轴上）；白▲二板；◆加仓（连板+均线多头发散）；青★生命线（缩量整理不破120日线后放量突破）；绿▼清仓（破20线3日未收回）；蓝▲新低（60日新低）。<br>
-<b>竞价</b>：9:25 撮合后采样，竞价量÷昨日量≥10%且高开≥3%为 S 级，≥6%且高开≥1%为 A 级。<br>
-<b>提示</b>：弱势环境下假突破比例高，市场温度低于 50% 只观察不动手。
+<b>信号</b>：黄▲一爆（涨≥6%＋1.8倍量＋站上20线）｜红▲二爆（深洗后放量收复5日线，或强洗不破20线后放量破前高，且 MACD 零轴上）｜白▲二板｜◆加仓（连板＋均线多头发散）｜青★生命线（缩量整理不破120日线后放量突破）｜橙「横盘突破」（60日振幅≤30%后爆量破箱顶）｜灰「炸板」（触板未封住，扣分）｜绿▼清仓（破20日线3日未收回）｜蓝▲新低（60日新低）。<br>
+<b>三档</b>：趋势档＝市值≥104亿 且 120日位置≥70%｜妖股档＝市值≤50亿、股价≤10元、位置≤30%｜其余归「其他」。位置＝(收盘−120日最低)÷(120日最高−120日最低)。<br>
+<b>情绪周期</b>：冰点（跌停≥20 或 上涨占比≤20%）→ 启动（跌停≤10 且 涨停≥50）→ 发酵（涨停≥60）→ 高潮（涨停≥90 或 上涨占比≥80%）→ 退潮。<b>高潮是卖点，不是买点。</b><br>
+<b>资金流向</b>：行业成交额占全市场比例，与20日均值比较。变化≥+20%为流入；占比连升≥3天标「驻扎」，1-2天标「升温」，0天标「过路」。近6日涨停第一行业更换≥4次判定「电风扇」，此环境只做隔日。<br>
+<b>量能</b>：今日全市场成交额÷20日均值，≥1.2倍为增量（可做趋势），≤1.05倍为存量（快进快出）。
 </footer>
 </div>
 
@@ -265,8 +267,11 @@ function renderFlow(f){
     `轮动：<b style="color:${r.rotor==='电风扇'?'#fb923c':'#8b98ad'}">${r.rotor||'-'}</b>
      <span style="color:var(--dim)">（近6日第一行业换了 ${r.changes||0} 次）</span>`;
 
-  const tbl=(list,title,color)=>{
-    if(!list||!list.length) return '';
+  const tbl=(list,title,color,emptyMsg)=>{
+    if(!list||!list.length){
+      return `<div style="padding:10px 14px;color:#5a6779;font-size:12.5px">
+        <span style="color:${color};font-weight:600">${title}</span>　${emptyMsg||'今日无数据'}</div>`;
+    }
     let h=`<div style="padding:8px 14px 2px;color:${color};font-size:12.5px;font-weight:600">${title}</div>`;
     h+='<table><thead><tr><th>行业</th><th>今日占比</th><th class="hm">20日均</th><th>变化</th><th class="hm">连升</th><th class="hm">今日涨停</th></tr></thead><tbody>';
     for(const x of list){
@@ -280,8 +285,9 @@ function renderFlow(f){
     }
     return h+'</tbody></table>';
   };
-  box.innerHTML=tbl(f.inflow,'▲ 资金流入（占比上升）','#ff4d5e')+
-                tbl(f.outflow,'▼ 资金流出（占比下降）','#22c55e');
+  box.innerHTML=tbl(f.inflow,'▲ 资金流入（占比上升）','#ff4d5e',
+                    '今日无行业达到流入标准（占比变化 ≥ +20%），全市场资金净流出 —— 不参与')+
+                tbl(f.outflow,'▼ 资金流出（占比下降）','#22c55e','今日无行业明显流出');
 }
 
 function renderLadder(L, leaders){
