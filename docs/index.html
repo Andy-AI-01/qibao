@@ -70,6 +70,7 @@ a{color:inherit;text-decoration:none}
 .pill.b{background:rgba(59,130,246,.18);color:#60a5fa}
 .pill.g{background:rgba(34,197,94,.16);color:var(--green)}
 .pill.o{background:rgba(251,146,60,.20);color:#fb923c}
+.pill.z{background:rgba(148,163,184,.18);color:#94a3b8}
 .tabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px}
 .tab{padding:5px 11px;border-radius:6px;font-size:12.5px;color:var(--dim);cursor:pointer;white-space:nowrap}
 .tab b{margin-left:5px;font-weight:600;font-size:11.5px}
@@ -132,6 +133,30 @@ footer b{color:var(--dim)}
     <span class="cnt" id="autime">9:26 自动采集</span>
   </div>
   <div class="scroll" id="tau-wrapper"><div id="tau"></div></div>
+</section>
+
+<section class="box" id="sec-cycle">
+  <div class="box-h">
+    <h2 style="color:var(--red)">● 情绪周期</h2>
+    <span class="cnt" id="cstage">--</span>
+    <span class="sp"></span>
+    <span class="cnt">冰点<span style="display:inline-block;width:9px;height:9px;background:#3b82f6;border-radius:2px;margin:0 3px 0 6px"></span>
+      启动<span style="display:inline-block;width:9px;height:9px;background:#facc15;border-radius:2px;margin:0 3px 0 6px"></span>
+      发酵<span style="display:inline-block;width:9px;height:9px;background:#fb923c;border-radius:2px;margin:0 3px 0 6px"></span>
+      高潮<span style="display:inline-block;width:9px;height:9px;background:#ff4d5e;border-radius:2px;margin:0 3px 0 6px"></span>
+      退潮<span style="display:inline-block;width:9px;height:9px;background:#22c55e;border-radius:2px;margin:0 3px 0 6px"></span></span>
+  </div>
+  <div id="tcycle" style="padding:12px 14px"></div>
+</section>
+
+<section class="box" id="sec-flow">
+  <div class="box-h">
+    <h2 style="color:var(--green)">● 资金流向</h2>
+    <span class="cnt" id="cflow">--</span>
+    <span class="sp"></span>
+    <span class="cnt" id="crotate"></span>
+  </div>
+  <div id="tflow" style="padding:0"></div>
 </section>
 
 <section class="box" id="sec-ladder">
@@ -198,6 +223,67 @@ function link(code){ const p=(code[0]==='6'||code[0]==='9')?'sh':'sz';
 
 function fmtT(t){ if(!t) return '-'; const s=String(t).padStart(6,'0'); return s.slice(0,2)+':'+s.slice(2,4); }
 
+function renderCycle(cy, stage){
+  const box=document.getElementById('tcycle');
+  if(!cy||!cy.length){ document.getElementById('sec-cycle').style.display='none'; return; }
+  const COL={'冰点':'#3b82f6','启动':'#facc15','发酵':'#fb923c','高潮':'#ff4d5e','退潮':'#22c55e'};
+  const maxv=Math.max(1,...cy.map(x=>Math.max(x.zt,x.dt)));
+  const n=cy.length;
+  let h='';
+  h+='<div style="display:flex;gap:2px;margin-bottom:8px">';
+  cy.forEach((x,i)=>{
+    h+=`<div title="${x.d}　${x.st}　涨停${x.zt}　跌停${x.dt}　最高${x.lb}板" style="flex:1;height:20px;border-radius:3px;background:${COL[x.st]||'#555'};opacity:${i===n-1?1:0.7}"></div>`;
+  });
+  h+='</div>';
+  h+='<div style="display:flex;gap:2px;align-items:flex-end;height:72px;padding-top:4px">';
+  cy.forEach(x=>{
+    const hz=Math.max(2,x.zt/maxv*100), hd=Math.max(1,x.dt/maxv*100);
+    h+=`<div title="${x.d} 涨停${x.zt} 跌停${x.dt}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:1px;height:100%">
+      <div style="height:${hz}%;background:var(--red);border-radius:2px 2px 0 0;opacity:.85"></div>
+      <div style="height:${hd}%;background:var(--green);border-radius:2px 2px 0 0;opacity:.65"></div></div>`;
+  });
+  h+='</div>';
+  const L=cy[n-1];
+  h+=`<div style="margin-top:10px;color:var(--dim);font-size:12px;line-height:1.8">
+    最新 <b>${L.d}</b>：涨停 <b style="color:var(--red)">${L.zt}</b> ／ 跌停 <b style="color:var(--green)">${L.dt}</b>
+    ／ 最高 <b>${L.lb}</b> 板 ／ 上涨占比 <b>${L.temp}%</b></div>`;
+  box.innerHTML=h;
+  document.getElementById('cstage').innerHTML=
+    `<span style="color:${COL[stage]||'#8b98ad'};font-weight:700;font-size:13px">当前：${stage||'--'}</span>`;
+}
+
+function renderFlow(f){
+  const box=document.getElementById('tflow');
+  if(!f){ document.getElementById('sec-flow').style.display='none'; return; }
+  const m=f.market||{}, r=f.rotation||{};
+  const inc=m.trend==='增量';
+  document.getElementById('cflow').innerHTML=
+    `<span class="pill ${inc?'r':'z'}">${m.trend||'-'}</span>
+     <span style="margin-left:8px">量能 <b>${(m.ratio||1).toFixed(2)}x</b>（相对20日均）
+     ${inc?'· 有增量资金进场':'· 存量博弈，快进快出'}</span>`;
+  document.getElementById('crotate').innerHTML=
+    `轮动：<b style="color:${r.rotor==='电风扇'?'#fb923c':'#8b98ad'}">${r.rotor||'-'}</b>
+     <span style="color:var(--dim)">（近6日第一行业换了 ${r.changes||0} 次）</span>`;
+
+  const tbl=(list,title,color)=>{
+    if(!list||!list.length) return '';
+    let h=`<div style="padding:8px 14px 2px;color:${color};font-size:12.5px;font-weight:600">${title}</div>`;
+    h+='<table><thead><tr><th>行业</th><th>今日占比</th><th class="hm">20日均</th><th>变化</th><th class="hm">连升</th><th class="hm">今日涨停</th></tr></thead><tbody>';
+    for(const x of list){
+      const stay=x.streak>=3?'<span class="pill r">驻扎</span>':(x.streak>=1?'<span class="pill y">升温</span>':'<span class="pill z">过路</span>');
+      h+=`<tr><td><span class="name">${x.name}</span> ${stay}</td>
+        <td>${x.share.toFixed(2)}%</td>
+        <td class="hm">${x.share20.toFixed(2)}%</td>
+        <td class="${x.chg>0?'up':'down'}">${x.chg>0?'+':''}${x.chg.toFixed(0)}%</td>
+        <td class="hm">${x.streak}天</td>
+        <td class="hm">${x.zt||0}</td></tr>`;
+    }
+    return h+'</tbody></table>';
+  };
+  box.innerHTML=tbl(f.inflow,'▲ 资金流入（占比上升）','#ff4d5e')+
+                tbl(f.outflow,'▼ 资金流出（占比下降）','#22c55e');
+}
+
 function renderLadder(L, leaders){
   const box=document.getElementById('tladder');
   if(!L){ document.getElementById('sec-ladder').style.display='none'; return; }
@@ -263,7 +349,7 @@ function renderBoom(rows,q){
     return vb-va;
   });
   if(!rr.length){ box.innerHTML='<div class="empty">本档今日无信号</div>'; return; }
-  const CL={'爆':'y','二爆':'r','二板':'w','加仓':'m','生命线':'c','新低':'b','清仓':'g','横盘突破':'o'};
+  const CL={'爆':'y','二爆':'r','二板':'w','加仓':'m','生命线':'c','新低':'b','清仓':'g','横盘突破':'o','炸板':'z'};
   let h='<table><thead><tr><th>代码</th><th>名称</th><th class="hm" style="text-align:left">行业</th>'+
         '<th class="hm">连板</th><th class="hm">现价</th><th>涨跌幅</th>'+
         '<th style="text-align:left">信号类型</th><th style="text-align:left">催化</th>'+
@@ -381,6 +467,8 @@ function apply(d){
      ${stxt}
      <span style="color:var(--dim)">${advice}</span>`;
   renderBoom(boom,document.getElementById('qm').value||'');
+  renderCycle(d.cycle, d.stage);
+  renderFlow(d.flow);
   renderLadder(d.ladder, d.leaders);
   renderInd(d.ind_top);
   drawBars(d.history||[]);
