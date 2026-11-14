@@ -79,7 +79,12 @@ def universe():
             if not c or c in seen or c[0] in ("4", "8", "9") or "退" in nm:
                 continue
             seen.add(c)
-            out.append({"code": c, "market": 1 if sym.startswith("sh") else 0, "name": nm})
+            try:
+                _cap = float(d.get("mktcap") or 0)
+            except Exception:
+                _cap = 0.0
+            out.append({"code": c, "market": 1 if sym.startswith("sh") else 0,
+                        "name": nm, "cap": _cap})
         time.sleep(0.05)
     return out
 
@@ -252,6 +257,7 @@ def analyse(bars):
     hh20, ll20 = roll_ext(c, 20, True), roll_ext(l, 20, False)
     ll30, ll60 = roll_ext(l, 30, False), roll_ext(l, 60, False)
     hh60 = roll_ext(h, 60, True)
+    hh120, ll120 = roll_ext(h, 120, True), roll_ext(l, 120, False)
 
     t = n - 1
     for arr in (m5, m10, m20, m60, vma20, ll20, ll30, ll60):
@@ -313,7 +319,9 @@ def analyse(bars):
                 score=score, vol_ratio=round(v[t] / Z(vma20, t), 2),
                 ma20_gap=round((c[t] / Z(m20, t) - 1) * 100, 2),
                 life_gap=round((c[t] / Z(lm, t) - 1) * 100, 2) if Z(lm, t) else 0.0,
-                amt=round(v[t] * 100 * c[t] / 1e8, 2))
+                amt=round(v[t] * 100 * c[t] / 1e8, 2),
+                pos=round((c[t] - Z(ll120, t)) / (Z(hh120, t) - Z(ll120, t)) * 100, 1)
+                if Z(hh120, t) > Z(ll120, t) else 50.0)
 
 
 def do_auction(uni):
@@ -361,6 +369,22 @@ def main():
     snap = snapshot([("sh" if s["market"] == 1 else "sz") + s["code"] for s in uni])
     up = sum(1 for q in snap.values() if q["chg"] > 0)
     dn = sum(1 for q in snap.values() if q["chg"] < 0)
+    capmap = {u["code"]: u.get("cap", 0) for u in uni}
+    tracks = {"T": 0, "Y": 0, "N": 0}
+    for r in rows:
+        capy = capmap.get(r["code"], 0) / 1e4          # 亿元
+        r["cap"] = round(capy, 1)
+        bull = any(t in r["tags"] for t in ("爆", "二爆", "二板", "加仓", "生命线", "横盘突破"))
+        if not bull:
+            r["track"] = "N"
+        elif capy >= 104 and r.get("pos", 0) >= 70:
+            r["track"] = "T"
+        elif 0 < capy <= 50 and r["close"] <= 10 and r.get("pos", 100) <= 30:
+            r["track"] = "Y"
+        else:
+            r["track"] = "N"
+        tracks[r["track"]] += 1
+
     rows.sort(key=lambda x: (-x["score"], -x["vol_ratio"]))
     trade_date = max((r["date"] for r in rows), default=bjnow().strftime("%Y-%m-%d"))
 
@@ -466,7 +490,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    buy=[], sell=[], boom=rows, history=[], recent=[],
-                   ladder=ladder, leaders=leaders, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, tracks=tracks, ind_top=ind_top, sentiment=sent,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
