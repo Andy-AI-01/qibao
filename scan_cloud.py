@@ -7,7 +7,7 @@
 输出：docs/data.json / docs/data.js / docs/auction.json
 """
 import os, sys, json, time, urllib.request, datetime
-from collections import deque
+from collections import deque, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -340,6 +340,40 @@ def main():
     ind_map = industry_map(uni)      # 先取行业，避免后续请求把它限流
     print("行业映射 %d" % len(ind_map), flush=True)
     rows = []
+    CYC = {k: defaultdict(int) for k in ("zt", "dt", "up", "tot", "lb")}
+
+    IND_AMT = defaultdict(lambda: defaultdict(float))   # 行业 -> 日期 -> 成交额
+    IND_ZT = defaultdict(lambda: defaultdict(int))      # 日期 -> 行业 -> 涨停家数
+
+    def accum(bars, code):
+        n = len(bars)
+        if n < 20:
+            return
+        c = [float(b[2]) for b in bars]
+        v = [float(b[5]) for b in bars]
+        dd = [b[0] for b in bars]
+        lim = 0.195 if code.startswith(("30", "68")) else 0.095
+        ind = ind_map.get(code, "") or ""
+        streak = 0
+        for i in range(max(1, n - 45), n):
+            chg = c[i] / c[i - 1] - 1
+            k = dd[i]
+            CYC["tot"][k] += 1
+            if ind:
+                IND_AMT[ind][k] += v[i] * 100 * c[i]
+            if chg >= lim:
+                CYC["zt"][k] += 1
+                if ind:
+                    IND_ZT[k][ind] += 1
+                streak += 1
+                if streak > CYC["lb"][k]:
+                    CYC["lb"][k] = streak
+            else:
+                if chg <= -lim:
+                    CYC["dt"][k] += 1
+                streak = 0
+            if chg > 0:
+                CYC["up"][k] += 1
 
     def work(s):
         sym = ("sh" if s["market"] == 1 else "sz") + s["code"]
@@ -355,6 +389,7 @@ def main():
             if not bars or bars[-1][0] < "2020":
                 continue
             ok_fetch += 1
+            accum(bars, s["code"])
             r = analyse(bars)
             if r and r["date"] == bars[-1][0]:
                 r.update(code=s["code"], name=s["name"])
@@ -408,13 +443,21 @@ def main():
         e["cat"] = "强催化" if e["n"] >= 4 else ("中催化" if e["n"] >= 2 else "弱催化")
 
     ztmap = {str(x.get("c")): x for x in zt}
+    zbmap = {str(x.get("c")): x for x in zb}
     for r in rows:
         z = ztmap.get(r["code"])
+        zz = zbmap.get(r["code"])          # 炸板池（触板未封住）
+        src = z or zz
         r["lbc"] = int(z.get("lbc") or 0) if z else 0
-        r["ind"] = (z.get("hybk") if z else None) or ind_map.get(r["code"], "") or ""
+        r["ind"] = (src.get("hybk") if src else None) or ind_map.get(r["code"], "") or ""
         r["cat"] = ind_stat.get(r["ind"], {}).get("cat", "") if r["ind"] else ""
-        tj = (z or {}).get("zttj") or {}
+        tj = (src or {}).get("zttj") or {}
         r["ztj"] = ("%d天%d板" % (tj.get("days", 0), tj.get("ct", 0))) if tj else ""
+        r["zbc"] = int((src or {}).get("zbc") or 0)
+        r["fbt"] = int((src or {}).get("fbt") or 0)
+        if zz is not None and z is None:
+            r["tags"].append("炸板")
+            r["score"] = r.get("score", 0) - 2
 
     def grade(x):
         lb = int(x.get("lbc") or 1)
@@ -478,6 +521,91 @@ def main():
          for h, e in ind_stat.items()],
         key=lambda x: (-x["n"], -x["max_lb"]))[:12]
 
+    # ---------- 情绪周期序列 ----------
+    cdates = sorted(CYC["tot"])[-30:]
+    cycle = []
+    for k in cdates:
+        z_, d_ = CYC["zt"][k], CYC["dt"][k]
+        t_ = CYC["tot"][k]
+        r_ = round(100.0 * CYC["up"][k] / max(1, t_), 1)
+        l_ = CYC["lb"][k]
+        if d_ >= 20 or r_ <= 20:
+            st = "冰点"
+        elif z_ >= 90 or r_ >= 80:
+            st = "高潮"
+        elif z_ >= 60:
+            st = "发酵"
+        elif d_ <= 10 and z_ >= 50:
+            st = "启动"
+        else:
+            st = "退潮"
+        cycle.append(dict(d=k, zt=z_, dt=d_, lb=l_, temp=r_, st=st))
+    stage = cycle[-1]["st"] if cycle else ""
+
+    # ---------- 资金流向 ----------
+    fdates = sorted(CYC["tot"])[-25:]
+    tot_amt = {d: 0.0 for d in fdates}
+    for ind, m in IND_AMT.items():
+        for d in fdates:
+            tot_amt[d] += m.get(d, 0.0)
+    td = fdates[-1] if fdates else ""
+    prev = fdates[-21:-1] if len(fdates) >= 21 else fdates[:-1]
+    flow_rows = []
+    for ind, m in IND_AMT.items():
+        a_today = m.get(td, 0.0)
+        if a_today <= 0 or tot_amt.get(td, 0) <= 0:
+            continue
+        share = a_today / tot_amt[td]
+        if share < 0.003:      # 占比<0.3%的迷你行业噪声太大，剔除
+            continue
+        base = [m.get(d, 0.0) / tot_amt[d] for d in prev if tot_amt.get(d, 0)]
+        if not base:
+            continue
+        s20 = sum(base) / len(base)
+        if s20 <= 0:
+            continue
+        chg_pct = share / s20 - 1
+        # 连续上升天数
+        shares = []
+        for d in fdates:
+            if tot_amt.get(d, 0):
+                shares.append(m.get(d, 0.0) / tot_amt[d])
+            else:
+                shares.append(0.0)
+        st = 0
+        for i in range(len(shares) - 1, 0, -1):
+            if shares[i] > shares[i - 1]:
+                st += 1
+            else:
+                break
+        flow_rows.append(dict(name=ind, share=round(share * 100, 2),
+                              share20=round(s20 * 100, 2),
+                              chg=round(chg_pct * 100, 1), streak=st,
+                              zt=IND_ZT.get(td, {}).get(ind, 0),
+                              amt=round(a_today / 1e8, 1)))
+    flow_rows.sort(key=lambda x: -x["chg"])
+    inflow = [x for x in flow_rows if x["chg"] > 20][:8]
+    outflow = sorted(flow_rows, key=lambda x: x["chg"])[:8]
+
+    # 存量 / 增量
+    amt_today = tot_amt.get(td, 0.0) / 1e8
+    amt_avg = (sum(tot_amt[d] for d in prev) / len(prev) / 1e8) if prev else amt_today
+    ratio = (amt_today / amt_avg) if amt_avg else 1.0
+    trend = "增量" if ratio >= 1.2 else ("存量" if ratio <= 1.05 else "平衡")
+
+    # 轮动速度：最近6日"涨停第一"的行业换了几个
+    tops = []
+    for d in fdates[-6:]:
+        m = IND_ZT.get(d) or {}
+        tops.append(max(m, key=m.get) if m else "")
+    changes = sum(1 for i in range(1, len(tops)) if tops[i] and tops[i - 1] and tops[i] != tops[i - 1])
+    rotor = "电风扇" if changes >= 4 else ("主线明确" if changes <= 2 else "较快")
+
+    flow = dict(inflow=inflow, outflow=outflow,
+                market=dict(amt=round(amt_today, 0), amt20=round(amt_avg, 0),
+                            ratio=round(ratio, 2), trend=trend),
+                rotation=dict(tops=tops[-6:], changes=changes, rotor=rotor))
+
     zb_rate = len(zb) / max(1, len(zt) + len(zb))
     max_lb = max([int(x.get("lbc") or 1) for x in zt], default=0)
     strong = (len(zt) >= 45 and zb_rate <= 0.35 and max_lb >= 4)
@@ -490,7 +618,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    buy=[], sell=[], boom=rows, history=[], recent=[],
-                   ladder=ladder, leaders=leaders, tracks=tracks, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, ind_top=ind_top, sentiment=sent,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
