@@ -595,16 +595,106 @@ def main():
 
     # 轮动速度：最近6日"涨停第一"的行业换了几个
     tops = []
+    prev_top = ""
     for d in fdates[-6:]:
         m = IND_ZT.get(d) or {}
-        tops.append(max(m, key=m.get) if m else "")
-    changes = sum(1 for i in range(1, len(tops)) if tops[i] and tops[i - 1] and tops[i] != tops[i - 1])
-    rotor = "电风扇" if changes >= 4 else ("主线明确" if changes <= 2 else "较快")
+        if not m:
+            tops.append(dict(d=d, ind=prev_top, n=0))
+            continue
+        mx = max(m.values())
+        cands = [k for k, v in m.items() if v == mx]
+        # 平局时优先沿用前一日的行业，避免噪声式"换主线"
+        pick = prev_top if prev_top in cands else sorted(cands)[0]
+        tops.append(dict(d=d, ind=pick, n=int(mx)))
+        prev_top = pick
+    names = [t["ind"] for t in tops]
+    changes = sum(1 for i in range(1, len(names))
+                  if names[i] and names[i - 1] and names[i] != names[i - 1])
+    top_n = tops[-1]["n"] if tops else 0
+    # 当前连续天数：末尾同一个第一已经站了几天
+    cur = 1
+    for i in range(len(names) - 1, 0, -1):
+        if names[i] and names[i] == names[i - 1]:
+            cur += 1
+        else:
+            break
+    # 七档：强度 → 连续性 → 变动频率
+    if top_n <= 3:
+        rotor = "混沌无主线"
+    elif cur >= 3 and top_n >= 6:
+        rotor = "主线确立"
+    elif cur >= 2 and top_n >= 4:
+        rotor = "主线形成"
+    elif top_n >= 12 and cur == 1:
+        rotor = "单日爆发"
+    elif changes <= 1:
+        rotor = "独苗主线"
+    elif changes == 2:
+        rotor = "双线跷跷板"
+    elif changes <= 4:
+        rotor = "多点轮动"
+    else:
+        rotor = "电风扇"
+
+    # ---------- 板块推荐 ----------
+    fmap = {x["name"]: x for x in flow_rows}
+    picks = []
+    for it in ind_top:
+        f = fmap.get(it["name"], {})
+        chg = f.get("chg", 0) or 0
+        streak = f.get("streak", 0) or 0
+        n = it["n"]
+        mlb = it["max_lb"]
+        sc = 0
+        rs = []
+        if chg >= 30:
+            sc += 3; rs.append("资金大幅流入")
+        elif chg >= 10:
+            sc += 2; rs.append("资金流入")
+        elif chg >= 0:
+            sc += 1; rs.append("资金持平")
+        else:
+            rs.append("资金流出")
+        if n >= 6:
+            sc += 3; rs.append("%d家涨停" % n)
+        elif n >= 3:
+            sc += 2; rs.append("%d家涨停" % n)
+        elif n >= 2:
+            sc += 1; rs.append("%d家涨停" % n)
+        else:
+            rs.append("仅%d家涨停" % n)
+        if mlb >= 4:
+            sc += 2; rs.append("%d板龙头" % mlb)
+        elif mlb >= 3:
+            sc += 1; rs.append("%d板" % mlb)
+        if streak >= 3:
+            sc += 2; rs.append("占比连升%d天" % streak)
+        elif streak >= 2:
+            sc += 1; rs.append("占比连升%d天" % streak)
+        if sc >= 8:
+            lv = "强烈推荐"
+        elif sc >= 6:
+            lv = "推荐"
+        elif sc >= 4:
+            lv = "观察"
+        else:
+            lv = "回避"
+        # 冰点/退潮期不给推荐级，板块强度只作参考
+        if stage in ("冰点", "退潮") and lv in ("强烈推荐", "推荐"):
+            lv = "观察"
+            rs.append("情绪%s期，降级" % stage)
+        picks.append(dict(name=it["name"], score=sc, level=lv, reasons=rs,
+                          zt=n, max_lb=mlb, cat=it["cat"],
+                          money=round(chg, 1), streak=streak,
+                          names=it.get("names", [])[:4]))
+    picks.sort(key=lambda x: (-x["score"], -x["zt"]))
+    picks = picks[:6]
 
     flow = dict(inflow=inflow, outflow=outflow,
                 market=dict(amt=round(amt_today, 0), amt20=round(amt_avg, 0),
                             ratio=round(ratio, 2), trend=trend),
-                rotation=dict(tops=tops[-6:], changes=changes, rotor=rotor))
+                rotation=dict(tops=tops[-6:], changes=changes, rotor=rotor,
+                            top_n=top_n, cur=cur))
 
     zb_rate = len(zb) / max(1, len(zt) + len(zb))
     max_lb = max([int(x.get("lbc") or 1) for x in zt], default=0)
@@ -618,7 +708,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    buy=[], sell=[], boom=rows, history=[], recent=[],
-                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, ind_top=ind_top, sentiment=sent,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
