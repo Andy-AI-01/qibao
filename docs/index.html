@@ -135,6 +135,16 @@ footer b{color:var(--dim)}
   <div class="scroll" id="tau-wrapper"><div id="tau"></div></div>
 </section>
 
+<section class="box" id="sec-pick">
+  <div class="box-h">
+    <h2 style="color:var(--amber)">● 板块推荐</h2>
+    <span class="cnt" id="cpick">--</span>
+    <span class="sp"></span>
+    <span class="cnt">资金＋催化＋高度＋持续性 四项打分（满分10）</span>
+  </div>
+  <div id="tpick" style="padding:12px 14px"></div>
+</section>
+
 <section class="box" id="sec-cycle">
   <div class="box-h">
     <h2 style="color:var(--red)">● 情绪周期</h2>
@@ -210,7 +220,7 @@ footer b{color:var(--dim)}
 <b>信号</b>：黄▲一爆（涨≥6%＋1.8倍量＋站上20线）｜红▲二爆（深洗后放量收复5日线，或强洗不破20线后放量破前高，且 MACD 零轴上）｜白▲二板｜◆加仓（连板＋均线多头发散）｜青★生命线（缩量整理不破120日线后放量突破）｜橙「横盘突破」（60日振幅≤30%后爆量破箱顶）｜灰「炸板」（触板未封住，扣分）｜绿▼清仓（破20日线3日未收回）｜蓝▲新低（60日新低）。<br>
 <b>三档</b>：趋势档＝市值≥104亿 且 120日位置≥70%｜妖股档＝市值≤50亿、股价≤10元、位置≤30%｜其余归「其他」。位置＝(收盘−120日最低)÷(120日最高−120日最低)。<br>
 <b>情绪周期</b>：冰点（跌停≥20 或 上涨占比≤20%）→ 启动（跌停≤10 且 涨停≥50）→ 发酵（涨停≥60）→ 高潮（涨停≥90 或 上涨占比≥80%）→ 退潮。<b>高潮是卖点，不是买点。</b><br>
-<b>资金流向</b>：行业成交额占全市场比例，与20日均值比较。变化≥+20%为流入；占比连升≥3天标「驻扎」，1-2天标「升温」，0天标「过路」。近6日涨停第一行业更换≥4次判定「电风扇」，此环境只做隔日。<br>
+<b>资金流向</b>：行业成交额占全市场比例，与20日均值比较。变化≥+20%为流入；占比连升≥3天标「驻扎」，1-2天标「升温」，0天标「过路」。<br><b>轮动七档</b>（强度→连续性→变动频率）：第一名≤3家＝混沌无主线（空仓）｜连≥3天且≥6家＝主线确立（可重仓）｜连≥2天且≥4家＝主线形成（可加仓）｜≥12家只当1天＝单日爆发（次日看延续）｜换≤1次＝独苗主线（只做龙头）｜换2次＝双线跷跷板（跌的买涨的卖）｜换3-4次＝多点轮动（做首板）｜换5次＝电风扇（只做最强，次日必走）。<br>
 <b>量能</b>：今日全市场成交额÷20日均值，≥1.2倍为增量（可做趋势），≤1.05倍为存量（快进快出）。
 </footer>
 </div>
@@ -224,6 +234,38 @@ function link(code){ const p=(code[0]==='6'||code[0]==='9')?'sh':'sz';
   return `https://quote.eastmoney.com/${p}${code}.html`; }
 
 function fmtT(t){ if(!t) return '-'; const s=String(t).padStart(6,'0'); return s.slice(0,2)+':'+s.slice(2,4); }
+
+function renderPick(picks, stage){
+  const box=document.getElementById('tpick');
+  if(!picks||!picks.length){ document.getElementById('sec-pick').style.display='none'; return; }
+  const C={'强烈推荐':'#ff4d5e','推荐':'#facc15','观察':'#3b82f6','回避':'#64748b'};
+  const good=picks.filter(x=>x.level==='强烈推荐'||x.level==='推荐');
+  const cold=(stage==='冰点'||stage==='退潮');
+  document.getElementById('cpick').innerHTML = good.length
+    ? `<span class="pill r">今日可做 ${good.length} 个板块</span>`
+    : (cold
+        ? `<span class="pill z">情绪${stage} · 今日空仓，板块强度仅作参考</span>`
+        : `<span class="pill z">今日无推荐板块 · 空仓</span>`);
+  let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">';
+  for(const x of picks.slice(0,3)){
+    const col=C[x.level]||'#64748b';
+    h+=`<div style="border:1px solid ${col}44;background:${col}0d;border-radius:10px;padding:10px 12px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="background:${col};color:#12161f;font-weight:700;font-size:11.5px;padding:2px 7px;border-radius:5px">${x.level}</span>
+        <span style="margin-left:auto;color:${col};font-weight:700;font-size:15px">${x.score}<span style="font-size:10.5px;opacity:.7">/10</span></span>
+      </div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--txt)">${x.name}</div>
+      <div style="font-size:11.5px;color:var(--dim);line-height:1.9">
+        涨停 <b style="color:${x.zt>=4?'#ff4d5e':'#e6edf3'}">${x.zt}</b> 家 ／ 最高 <b>${x.max_lb}</b> 板 ／
+        <b style="color:${x.money>0?'#ff4d5e':'#22c55e'}">${x.money>0?'+':''}${x.money}%</b> 资金<br>
+        ${x.reasons.map(r=>`<span style="display:inline-block;background:rgba(255,255,255,.05);padding:1px 6px;border-radius:4px;margin:2px 3px 0 0">${r}</span>`).join('')}
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:#5a6779">${(x.names||[]).join('、')}</div>
+    </div>`;
+  }
+  h+='</div>';
+  box.innerHTML=h;
+}
 
 function renderCycle(cy, stage){
   const box=document.getElementById('tcycle');
@@ -263,9 +305,16 @@ function renderFlow(f){
     `<span class="pill ${inc?'r':'z'}">${m.trend||'-'}</span>
      <span style="margin-left:8px">量能 <b>${(m.ratio||1).toFixed(2)}x</b>（相对20日均）
      ${inc?'· 有增量资金进场':'· 存量博弈，快进快出'}</span>`;
+  const rotorCol={'主线确立':'#22c55e','独苗主线':'#38bdf8','双线跷跷板':'#facc15',
+                  '多点轮动':'#fb923c','电风扇':'#ff4d5e','混沌无主线':'#64748b'};
+  const tops=(r.tops||[]).map(t=>`<span style="display:inline-block;background:rgba(255,255,255,.05);border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px" title="${t.d}　${t.ind||''}　${t.n||0}家涨停"><span style="color:#5a6779">${(t.d||'').slice(5)}</span> ${t.ind||'-'} <b style="color:#8b98ad">${t.n||0}</b></span>`).join('');
+  const tip={'主线确立':'可重仓，拿趋势','独苗主线':'轻仓，只做龙头','双线跷跷板':'跌的买，涨的卖',
+             '多点轮动':'做首板，隔日走','电风扇':'只做最强，次日必走','混沌无主线':'空仓'}[r.rotor]||'';
   document.getElementById('crotate').innerHTML=
-    `轮动：<b style="color:${r.rotor==='电风扇'?'#fb923c':'#8b98ad'}">${r.rotor||'-'}</b>
-     <span style="color:var(--dim)">（近6日第一行业换了 ${r.changes||0} 次）</span>`;
+    `<div style="text-align:right">轮动：<b style="color:${rotorCol[r.rotor]||'#8b98ad'}">${r.rotor||'-'}</b>
+     <span style="color:var(--dim)">（近6日换${r.changes||0}次 · 今日第一${r.top_n||0}家）</span>
+     ${tip?`<span style="color:${rotorCol[r.rotor]||'#8b98ad'};opacity:.85">· ${tip}</span>`:''}
+     <div style="margin-top:4px;max-width:560px">${tops}</div></div>`;
 
   const tbl=(list,title,color,emptyMsg)=>{
     if(!list||!list.length){
@@ -473,6 +522,7 @@ function apply(d){
      ${stxt}
      <span style="color:var(--dim)">${advice}</span>`;
   renderBoom(boom,document.getElementById('qm').value||'');
+  renderPick(d.picks, d.stage);
   renderCycle(d.cycle, d.stage);
   renderFlow(d.flow);
   renderLadder(d.ladder, d.leaders);
