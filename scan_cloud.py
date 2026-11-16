@@ -227,7 +227,7 @@ def ths_zt_detail(d):
             if ri and c not in detail:
                 ri = ri.split("（免责声明")[0].strip()
                 ri = ri.replace("\n", " ")
-                detail[c] = ri[:300]
+                detail[c] = ri[:1200]
         if bd["n"] >= 2 and not BLK_BAD_RE.search(bd["name"]):
             blocks.append(bd)
     blocks.sort(key=lambda x: (-x["n"], -x["cont"]))
@@ -568,6 +568,159 @@ def do_auction(uni):
     print("auction skipped (cloud version)")
 
 
+NEWS_URL = ("https://news.10jqka.com.cn/tapp/news/push/stock/"
+            "?page=1&tag=&track=website&pagesize=40")
+NEWS_MACRO = re.compile(r"(证监会|国务院|国常会|政治局|央行|发改委|财政部|工信部|商务部|交易所|金融监管|降准|降息|"
+                        r"LPR|MLF|逆回购|关税|中美|美联储|美股|纳指|纳斯达克|道指|道琼斯|标普|A50|离岸人民币|"
+                        r"外资|北向|IPO|注册制|退市新规|印花税|资本市场|政策|监管新规)")
+NEWS_THEME = re.compile(r"(芯片|半导体|光刻|存储|算力|数据中心|液冷|AI|人工智能|大模型|机器人|人形|固态电池|"
+                        r"锂电|光伏|储能|核电|核聚变|量子|6G|卫星|商业航天|低空经济|军工|创新药|减肥药|CRO|"
+                        r"稀土|永磁|黄金|铜|铝|煤炭|石油|天然气|电力|电网|特高压|并购重组|重组|借壳|回购|增持|"
+                        r"中标|订单|量产|涨价|提价|获批|投产|扩产|突破|国产替代|数据要素|信创|鸿蒙|智驾|无人驾驶)")
+NEWS_BAD = re.compile(r"(足球|篮球|NBA|世界杯|奥运|明星|演员|歌手|演唱会|离婚|结婚|车祸|火灾|地震|台风|"
+                      r"暴雨|判刑|受贿|落马|纪委|双开|彩票|网红|直播带货|电影票房|"
+                      r"董事长|当选|聘任|辞职|离任|代行|抵达|会见|致辞|座谈|来访|签署合作备忘录)")
+NEWS_TAGS = ("A股", "宏观", "政策", "要闻")
+
+
+def fetch_news(limit=10, hours=18):
+    """隔夜要闻：同花顺 7x24 快讯，按关键词过滤出与炒作相关的"""
+    try:
+        d = json.loads(get(NEWS_URL))
+        lst = (d.get("data") or {}).get("list") or []
+    except Exception:
+        return []
+    now = time.time()
+    cand = []
+    for it in lst:
+        try:
+            ts = float(it.get("ctime") or 0)
+        except Exception:
+            ts = 0
+        if ts and now - ts > hours * 3600:
+            continue
+        t = (it.get("title") or "").strip()
+        s = (it.get("digest") or it.get("short") or "").strip()
+        tags = [x.get("name", "") for x in (it.get("tags") or [])]
+        if not t or NEWS_BAD.search(t):
+            continue
+        is_macro = bool(NEWS_MACRO.search(t) or NEWS_MACRO.search(s[:120]))
+        is_theme = bool(NEWS_THEME.search(t))
+        if not (is_macro or is_theme):
+            continue
+        sc = (3 if is_macro else 0) + (2 if is_theme else 0) + (1 if "A股" in tags else 0)
+        cand.append((sc, ts, it, t, s, tags))
+    cand.sort(key=lambda x: (-x[0], -x[1]))
+    out, seen, us = [], {}, 0
+    for sc, ts, it, t, s, tags in cand:
+        us_flag = ("盘前" in t) or ("美股" in t and "A股" not in tags)
+        if us_flag and us >= 2:
+            continue
+        subj = t.split("：")[0][:6] if "：" in t else t[:6]
+        if seen.get(subj, 0) >= 2:
+            continue
+        seen[subj] = seen.get(subj, 0) + 1
+        if us_flag:
+            us += 1
+        out.append(dict(t=t, s=s[:110], tag=tags[0] if tags else "",
+                        url=it.get("url") or "",
+                        tm=time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else ""))
+        if len(out) >= limit:
+            break
+    out.sort(key=lambda x: x["tm"], reverse=True)
+    return out
+
+
+def fetch_global():
+    """隔夜外盘：美股三大 + 恒指 + A50 期货（名称用固定映射，接口是 GBK 编码）"""
+    NAME = {"usDJI": "道琼斯", "usIXIC": "纳斯达克", "usINX": "标普500",
+            "hkHSI": "恒生指数", "CHA50CFD": "A50期货"}
+    out = []
+    try:
+        raw = get("https://qt.gtimg.cn/q=usDJI,usIXIC,usINX,hkHSI,CHA50CFD", enc="gbk")
+        for line in raw.split(";"):
+            line = line.strip()
+            if "=" not in line or not line.startswith("v_"):
+                continue
+            key = line.split("=", 1)[0][2:].strip()
+            body = line.split('="', 1)[-1].rstrip('"')
+            f = body.split("~")
+            if len(f) < 33:
+                continue
+            try:
+                out.append(dict(name=NAME.get(key, key), price=float(f[3]),
+                                pct=round(float(f[32]), 2)))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return out
+
+
+def premarket():
+    """盘前解读：隔夜外盘 + 要闻 + 昨日复盘 + 今日关注"""
+    now = bjnow()
+    prev = now - datetime.timedelta(days=1)
+    while prev.weekday() >= 5:
+        prev -= datetime.timedelta(days=1)
+    ps = prev.strftime("%Y%m%d")
+    zt, blk, det = ths_zt_detail(ps)
+    gq = fetch_global()
+    news = fetch_news()
+    zt_n = len(zt)
+    lbs = []
+    for v in zt.values():
+        hd = v.get("hd") or ""
+        nums = re.findall(r"\d+", hd)
+        lbs.append(int(nums[-1]) if nums else 1)
+    max_lb = max(lbs) if lbs else 0
+    n2 = sum(1 for x in lbs if x >= 2)
+    n3 = sum(1 for x in lbs if x >= 3)
+    review = ["昨日（%s）涨停 %d 家，其中 %d 只连板、%d 只 3 板以上，空间高度 %d 板。"
+              % (prev.strftime("%m-%d"), zt_n, n2, n3, max_lb)]
+    if blk:
+        t = blk[0]
+        review.append("昨日主线「%s」%d 家涨停、%d 只连板、最高 %s、持续 %d 天。"
+                      % (t["name"], t["n"], t.get("cont") or 0, t.get("high") or "-", t.get("days") or 0))
+        if len(blk) > 2:
+            review.append("跟风：「%s」%d 家、「%s」%d 家。"
+                          % (blk[1]["name"], blk[1]["n"], blk[2]["name"], blk[2]["n"]))
+    focus = []
+    for b in blk[:3]:
+        why = []
+        for s in (b.get("stocks") or [])[:6]:
+            r = (det.get(s["c"]) or "").strip()
+            if not r:
+                r = (zt.get(s["c"]) or {}).get("reason") or ""
+            if r:
+                why.append(dict(n=s["n"], c=s["c"], lb=s.get("lb") or 1, t=r))
+            if len(why) >= 2:
+                break
+        focus.append(dict(blk=b["name"], n=b["n"], high=b.get("high") or "",
+                          why=why or [dict(n="", c="", lb=0,
+                                           t="%d 家涨停、最高 %s" % (b["n"], b.get("high") or "-"))],
+                          stocks=(b.get("stocks") or [])[:8]))
+    adv = []
+    if max_lb >= 5:
+        adv.append("昨日空间 %d 板，接力情绪还在，今天重点看高标能否继续上台阶。" % max_lb)
+    elif max_lb <= 3:
+        adv.append("昨日最高只有 %d 板，空间被压，今天先看低位补涨而不是高位接力。" % max_lb)
+    else:
+        adv.append("昨日空间 %d 板，处于中性区间，先看主线是否延续。" % max_lb)
+    if zt_n >= 60:
+        adv.append("涨停家数在 60 家以上，赚钱效应不错，可正常仓位参与主线。")
+    elif zt_n >= 35:
+        adv.append("涨停家数中等，半仓以内，只做最强主线。")
+    else:
+        adv.append("涨停家数偏少，情绪弱，轻仓或空仓，等确认再动手。")
+    adv.append("9:25 集合竞价重点看昨日主线个股：高开 3% 以上、竞价量占昨日成交量 10% 以上，才算资金真认可。")
+    return dict(active=now.hour < 9 or (now.hour == 9 and now.minute < 30),
+                prev=prev.strftime("%Y-%m-%d"), global_idx=gq, news=news,
+                review=review, focus=focus, advice=" ".join(adv),
+                zt=zt_n, max_lb=max_lb, n2=n2,
+                ts=now.strftime("%H:%M"))
+
+
 def build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb):
     """早盘解读：把当日盘面压成几句人话 + 推荐炒作逻辑 + 相关个股"""
     zt_n, zb_n, dt_n = len(zt), len(zb), len(dtp)
@@ -605,18 +758,20 @@ def build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb):
             if not r:
                 r = (zt.get(s["c"]) or {}).get("reason") or ""
             if r:
-                why.append(r[:70])
+                why.append(dict(n=s["n"], c=s["c"], lb=s.get("lb") or 1, t=r))
             if len(why) >= 2:
                 break
         logic.append(dict(blk=b["name"], n=b["n"], cont=b.get("cont") or 0,
                           high=b.get("high") or "", days=b.get("days") or 0,
-                          why=why or ["%d 家涨停、最高 %s" % (b["n"], b.get("high") or "-")],
+                          why=why or [dict(n="", c="", lb=0,
+                                           t="%d 家涨停、最高 %s" % (b["n"], b.get("high") or "-"))],
                           stocks=(b.get("stocks") or [])[:8]))
     if not logic:
         for it in (ind_top or [])[:3]:
             logic.append(dict(blk=it["name"], n=it["n"], cont=0,
                               high="%d板" % it["max_lb"], days=0,
-                              why=["%d 家涨停、%d 板高度" % (it["n"], it["max_lb"])],
+                              why=[dict(n="", c="", lb=0,
+                                        t="%d 家涨停、%d 板高度" % (it["n"], it["max_lb"]))],
                               stocks=(it.get("stocks") or [])[:8]))
     adv = {"冰点": "冰点期只做首板低吸，不接飞刀；等涨停家数回到 60 家以上再动手。",
            "启动": "启动期可试仓，优先最强主线的龙一龙二，仓位半仓以内。",
@@ -1047,9 +1202,16 @@ def main():
     except Exception as e:
         print("  早盘解读失败 %s" % e, flush=True)
 
+    pre = {}
+    try:
+        pre = premarket()
+        print("  盘前解读 外盘%d 要闻%d 昨日涨停%d" % (len(pre["global_idx"]), len(pre["news"]), pre["zt"]), flush=True)
+    except Exception as e:
+        print("  盘前解读失败 %s" % e, flush=True)
+
     payload = dict(updated=bjnow().strftime("%Y-%m-%d %H:%M:%S"),
                    trade_date=trade_date, universe=len(uni), params={},
-                   brief=brief,
+                   brief=brief, pre=pre,
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
