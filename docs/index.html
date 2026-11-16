@@ -189,6 +189,7 @@ footer b{color:var(--dim)}
     <div class="tabs" id="indtabs">
       <span class="tab on" data-t="ind">行业</span>
       <span class="tab" data-t="con">概念</span>
+      <span class="tab" data-t="wp">字辈</span>
     </div>
     <span class="cnt" id="cind">--</span>
     <span class="sp"></span>
@@ -500,26 +501,82 @@ function renderConcept(list, sortKey){
   return true;
 }
 
+/* ---------- 字辈 / 名字炒作 ---------- */
+function renderWordplay(list, sortKey){
+  const box=document.getElementById('tind');
+  const lvbox=document.getElementById('tlv');
+  if(!list||!list.length){ return false; }
+  const key=sortKey||'n';
+  const arr=list.slice().sort((a,b)=>{
+    if(key==='name') return (a.name||'').localeCompare(b.name||'','zh');
+    if(key==='max_lb') return b.max_lb-a.max_lb || b.n-a.n;
+    if(key==='pct') return b.pct-a.pct;
+    return b.n-a.n || b.max_lb-a.max_lb;
+  });
+  document.getElementById('cind').textContent=arr.length+' 组字辈 · 今日 '+arr.reduce((s,x)=>s+x.n,0)+' 家涨停';
+  let h='<table><thead><tr><th>字辈</th><th>今日涨停</th><th class="hm">最高板</th>'+
+        '<th class="hm">全市场</th><th class="hm">占比</th><th class="hm" style="text-align:left">成员</th></tr></thead><tbody>';
+  for(const x of arr){
+    const hot=x.n>=2;
+    h+=`<tr><td><span class="name">${x.name}</span></td>
+      <td class="${hot?'up':''}">${x.n}</td>
+      <td class="hm">${x.max_lb}板</td>
+      <td class="hm" style="color:var(--dim)">${x.total}只</td>
+      <td class="hm" style="color:${x.pct>=10?'#ff4d5e':'var(--dim)'}">${x.pct}%</td>
+      <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,5).join('、')}</td></tr>`;
+  }
+  box.innerHTML=h+'</tbody></table>';
+
+  const top=arr[0];
+  let v='<div style="font-size:12px;color:var(--dim);margin:2px 0 8px">字辈炒作说明</div>';
+  v+=`<div style="font-size:11.5px;line-height:1.9;color:#8fa3b8">
+    A股「名字炒作」：生肖年（龙/蛇/马…）、数字头（三/九…）、谐音梗（川大智胜·特朗普）会被资金当作题材成群点燃。<br>
+    <span style="color:#5a6779">占比 = 今日涨停数 ÷ 全市场同名字辈总数，占比越高说明同类被带得越凶。</span>
+  </div>`;
+  if(top){
+    v+=`<div style="margin-top:10px;font-size:11.5px;line-height:1.8;color:${top.n>=2?'#ff4d5e':'#5a6779'}">
+      今日最强：<b>${top.name}</b> ${top.n}家涨停（最高${top.max_lb}板，占比${top.pct}%）<br>
+      <span style="color:#5a6779">${top.n>=2?'同名字辈已形成合力，可留意扩散':'仅单只独苗，暂未成势'}</span></div>`;
+  }
+  lvbox.innerHTML=v;
+  return true;
+}
+
 function renderIndMain(){
   if(!DATA) return;
   const sec=document.getElementById('sec-ind');
   const sel=document.getElementById('indsort');
   const hasInd=!!(DATA.ind_top&&DATA.ind_top.length);
   const hasCon=!!(DATA.concept_top&&DATA.concept_top.length);
-  if(!hasInd&&!hasCon){ sec.style.display='none'; return; }
+  const hasWp=!!(DATA.wordplay&&DATA.wordplay.length);
+  if(!hasInd&&!hasCon&&!hasWp){ sec.style.display='none'; return; }
   sec.style.display='';
   if(state.indTab==='con'&&!hasCon) state.indTab='ind';
-  if(state.indTab==='ind'){
-    sel.innerHTML='<option value="n">按涨停家数</option><option value="max_lb">按最高板</option>'+
-                  '<option value="cat">按催化等级</option><option value="name">按行业名</option>';
-    sel.value=state.indSort;
-    if(!renderInd(DATA.ind_top, state.indSort)){ state.indTab='con'; renderIndMain(); }
-  }else{
+  if(state.indTab==='wp'&&!hasWp) state.indTab='ind';
+  const ORDER={ind:0,con:1,wp:2};
+  const run=(t)=>{
+    if(t==='ind'){
+      sel.innerHTML='<option value="n">按涨停家数</option><option value="max_lb">按最高板</option>'+
+                    '<option value="cat">按催化等级</option><option value="name">按行业名</option>';
+      sel.value=state.indSort;
+      return renderInd(DATA.ind_top, state.indSort);
+    }
+    if(t==='con'){
+      if(state.indSort==='cat') state.indSort='n';
+      sel.innerHTML='<option value="n">按涨停家数</option><option value="max_lb">按最高板</option>'+
+                    '<option value="name">按概念名</option>';
+      sel.value=state.indSort;
+      return renderConcept(DATA.concept_top, state.indSort);
+    }
     if(state.indSort==='cat') state.indSort='n';
     sel.innerHTML='<option value="n">按涨停家数</option><option value="max_lb">按最高板</option>'+
-                  '<option value="name">按概念名</option>';
+                  '<option value="pct">按占比</option><option value="name">按字辈名</option>';
     sel.value=state.indSort;
-    if(!renderConcept(DATA.concept_top, state.indSort)){ state.indTab='ind'; renderIndMain(); }
+    return renderWordplay(DATA.wordplay, state.indSort);
+  };
+  if(!run(state.indTab)){
+    const avail=['ind','con','wp'].filter(t=>t==='ind'?hasInd:(t==='con'?hasCon:hasWp));
+    if(avail.length){ state.indTab=avail[0]; run(state.indTab); }
   }
   const tabs=document.getElementById('indtabs');
   if(tabs&&tabs.children) for(const el of tabs.children) el.classList.toggle('on', el.dataset.t===state.indTab);
