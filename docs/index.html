@@ -78,6 +78,12 @@ a{color:inherit;text-decoration:none}
 .tab.on b{color:#1a1f29}
 select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   border-radius:8px;padding:6px 8px;font-size:12.5px;outline:none}
+.duo{display:grid;grid-template-columns:minmax(380px,1.6fr) minmax(220px,1fr);gap:12px}
+@media (max-width:900px){ .duo{grid-template-columns:1fr} }
+.lv-row{display:flex;align-items:center;gap:9px;padding:10px 0;border-bottom:1px solid #1c2431}
+.lv-row:last-child{border-bottom:0}
+.lv-num{font-size:20px;font-weight:700;min-width:40px;text-align:right;line-height:1}
+.lv-tag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:5px;flex:none}
 .empty{padding:26px 16px;text-align:center;color:var(--dim);font-size:12.5px;line-height:1.9}
 .bars{display:flex;align-items:flex-end;gap:3px;height:70px;padding:12px 14px 0}
 .bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
@@ -178,11 +184,25 @@ footer b{color:var(--dim)}
 </section>
 
 <section class="box" id="sec-ind">
-  <div class="box-h">
+  <div class="box-h" style="flex-wrap:wrap">
     <h2 style="color:var(--amber)">● 行业催化</h2>
-    <span class="cnt">强催化 ≥4家 ／ 中催化 2-3家 ／ 弱催化 1家</span>
+    <div class="tabs" id="indtabs">
+      <span class="tab on" data-t="ind">行业</span>
+      <span class="tab" data-t="con">概念</span>
+    </div>
+    <span class="cnt" id="cind">--</span>
+    <span class="sp"></span>
+    <select id="indsort">
+      <option value="n">按涨停家数</option>
+      <option value="max_lb">按最高板</option>
+      <option value="cat">按催化等级</option>
+      <option value="name">按行业名</option>
+    </select>
   </div>
-  <div id="tind"></div>
+  <div class="duo">
+    <div id="tind"></div>
+    <div id="tlv" style="padding:4px 14px 12px;border-left:1px solid var(--line)"></div>
+  </div>
 </section>
 
 <section class="box">
@@ -228,7 +248,7 @@ footer b{color:var(--dim)}
 <script src="data.js"></script>
 <script>
 let DATA=null;
-const state={track:'ALL', sort:'score'};
+const state={track:'ALL', sort:'score', indSort:'n', indTab:'ind'};
 const SORTKEY={score:'score', lbc:'lbc', vol_ratio:'vol_ratio', chg:'chg', amt:'amt', cap:'cap', pos:'pos'};
 function link(code){ const p=(code[0]==='6'||code[0]==='9')?'sh':'sz';
   return `https://quote.eastmoney.com/${p}${code}.html`; }
@@ -379,20 +399,130 @@ function renderLadder(L, leaders){
   document.getElementById('cladder').textContent='今日涨停 '+total+' 家'+(leaders&&leaders.length?(' · 龙头 '+leaders.length+' 只'):'');
 }
 
-function renderInd(list){
+const CATW={'强催化':3,'中催化':2,'弱催化':1,'':0};
+
+function renderInd(list, sortKey){
   const box=document.getElementById('tind');
-  if(!list||!list.length){ document.getElementById('sec-ind').style.display='none'; return; }
-  let h='<table><thead><tr><th>行业</th><th>涨停家数</th><th class="hm">最高板</th>'+
-        '<th style="text-align:left">催化等级</th><th class="hm" style="text-align:left">代表股</th></tr></thead><tbody>';
-  for(const x of list){
+  const lvbox=document.getElementById('tlv');
+  const sec=document.getElementById('sec-ind');
+  if(!list||!list.length){ return false; }
+  const key=sortKey||state.indSort||'n';
+  const arr=list.slice().sort((a,b)=>{
+    if(key==='name') return (a.name||'').localeCompare(b.name||'','zh');
+    if(key==='cat') return (CATW[b.cat]||0)-(CATW[a.cat]||0) || b.n-a.n || b.max_lb-a.max_lb;
+    if(key==='max_lb') return b.max_lb-a.max_lb || b.n-a.n;
+    return b.n-a.n || b.max_lb-a.max_lb;
+  });
+  const tot=arr.reduce((s,x)=>s+x.n,0);
+  document.getElementById('cind').textContent=arr.length+' 个行业 · '+tot+' 家涨停';
+  let h='<table><thead><tr><th>行业</th><th>涨停</th><th class="hm">最高板</th>'+
+        '<th style="text-align:left">催化</th><th class="hm" style="text-align:left">代表股</th></tr></thead><tbody>';
+  for(const x of arr){
     const cls=x.cat==='强催化'?'r':(x.cat==='中催化'?'y':'');
     h+=`<tr><td><span class="name">${x.name}</span></td>
       <td class="${x.n>=4?'up':''}">${x.n}</td>
       <td class="hm">${x.max_lb}板</td>
       <td style="text-align:left">${x.cat?`<span class="pill ${cls}">${x.cat}</span>`:'-'}</td>
-      <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).join('、')}</td></tr>`;
+      <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,3).join('、')}</td></tr>`;
   }
   box.innerHTML=h+'</tbody></table>';
+
+  // 右侧：催化等级分布
+  const g={'强催化':[], '中催化':[], '弱催化':[]};
+  for(const x of arr){ if(g[x.cat]) g[x.cat].push(x); }
+  let v='<div style="font-size:12px;color:var(--dim);margin:2px 0 8px">催化等级分布</div>';
+  const meta=[['强催化','#ff4d5e','≥4家涨停'],['中催化','#facc15','2-3家'],['弱催化','#94a3b8','1家']];
+  for(const [k,col,rule] of meta){
+    const rows=g[k]||[];
+    const sum=rows.reduce((s,x)=>s+x.n,0);
+    v+=`<div class="lv-row">
+      <span class="lv-tag" style="background:${col}22;color:${col}">${k}</span>
+      <span class="lv-num" style="color:${col}">${rows.length}</span>
+      <span style="font-size:11.5px;color:var(--dim);line-height:1.6">
+        个行业 · 共 ${sum} 家涨停<br>
+        <span style="color:#5a6779">${rule}${rows.length?'｜'+rows.slice(0,3).map(x=>x.name).join('、'):''}</span>
+      </span></div>`;
+  }
+  const strong=(g['强催化']||[]).length;
+  v+=`<div style="margin-top:10px;font-size:11.5px;line-height:1.8;color:${strong?'#ff4d5e':'#5a6779'}">
+    ${strong? `今日有 ${strong} 个强催化方向，可重点跟踪`:'今日无强催化方向，缺乏主线'}</div>`;
+  lvbox.innerHTML=v;
+  return true;
+}
+
+/* ---------- 概念催化 ---------- */
+function conceptGrade(n){ return n>=8?'核心':(n>=4?'次核心':(n>=2?'边缘':'')); }
+
+function renderConcept(list, sortKey){
+  const box=document.getElementById('tind');
+  const lvbox=document.getElementById('tlv');
+  if(!list||!list.length){ return false; }
+  const key=sortKey||state.indSort||'n';
+  const arr=list.slice().sort((a,b)=>{
+    if(key==='name') return (a.name||'').localeCompare(b.name||'','zh');
+    if(key==='max_lb') return b.max_lb-a.max_lb || b.n-a.n;
+    return b.n-a.n || b.max_lb-a.max_lb;
+  });
+  const tot=arr.reduce((s,x)=>s+x.n,0);
+  document.getElementById('cind').textContent=arr.length+' 个概念 · 累计 '+tot+' 家次涨停';
+  let h='<table><thead><tr><th>概念</th><th>涨停</th><th class="hm">最高板</th>'+
+        '<th style="text-align:left">强度</th><th class="hm" style="text-align:left">代表股</th></tr></thead><tbody>';
+  for(const x of arr){
+    const g=conceptGrade(x.n);
+    const cls=g==='核心'?'r':(g==='次核心'?'y':'');
+    h+=`<tr><td><span class="name">${x.name}</span></td>
+      <td class="${x.n>=8?'up':''}">${x.n}</td>
+      <td class="hm">${x.max_lb}板</td>
+      <td style="text-align:left">${g?`<span class="pill ${cls}">${g}</span>`:'-'}</td>
+      <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,3).join('、')}</td></tr>`;
+  }
+  box.innerHTML=h+'</tbody></table>';
+
+  const g={'核心':[], '次核心':[], '边缘':[]};
+  for(const x of arr){ const k=conceptGrade(x.n); if(g[k]) g[k].push(x); }
+  let v='<div style="font-size:12px;color:var(--dim);margin:2px 0 8px">概念强度分布</div>';
+  const meta=[['核心','#ff4d5e','≥8家涨停'],['次核心','#facc15','4-7家'],['边缘','#94a3b8','2-3家']];
+  for(const [k,col,rule] of meta){
+    const rows=g[k]||[];
+    const sum=rows.reduce((s,x)=>s+x.n,0);
+    v+=`<div class="lv-row">
+      <span class="lv-tag" style="background:${col}22;color:${col}">${k}</span>
+      <span class="lv-num" style="color:${col}">${rows.length}</span>
+      <span style="font-size:11.5px;color:var(--dim);line-height:1.6">
+        ${sum} 家次 · 均 ${rows.length?(sum/rows.length).toFixed(1):'0'} 家/概念<br>
+        <span style="color:#5a6779">${rule}${rows.length?'｜'+rows.slice(0,3).map(x=>x.name).join('、'):''}</span>
+      </span></div>`;
+  }
+  const core=g['核心']||[];
+  v+=`<div style="margin-top:10px;font-size:11.5px;line-height:1.8;color:${core.length?'#ff4d5e':'#5a6779'}">
+    ${core.length? `核心概念：${core.slice(0,3).map(x=>x.name).join('、')}，题材集中度较高`:'概念端无 8 家以上聚合，题材分散'}</div>`;
+  lvbox.innerHTML=v;
+  return true;
+}
+
+function renderIndMain(){
+  if(!DATA) return;
+  const sec=document.getElementById('sec-ind');
+  const sel=document.getElementById('indsort');
+  const hasInd=!!(DATA.ind_top&&DATA.ind_top.length);
+  const hasCon=!!(DATA.concept_top&&DATA.concept_top.length);
+  if(!hasInd&&!hasCon){ sec.style.display='none'; return; }
+  sec.style.display='';
+  if(state.indTab==='con'&&!hasCon) state.indTab='ind';
+  if(state.indTab==='ind'){
+    sel.innerHTML='<option value="n">按涨停家数</option><option value="max_lb">按最高板</option>'+
+                  '<option value="cat">按催化等级</option><option value="name">按行业名</option>';
+    sel.value=state.indSort;
+    if(!renderInd(DATA.ind_top, state.indSort)){ state.indTab='con'; renderIndMain(); }
+  }else{
+    if(state.indSort==='cat') state.indSort='n';
+    sel.innerHTML='<option value="n">按涨停家数</option><option value="max_lb">按最高板</option>'+
+                  '<option value="name">按概念名</option>';
+    sel.value=state.indSort;
+    if(!renderConcept(DATA.concept_top, state.indSort)){ state.indTab='ind'; renderIndMain(); }
+  }
+  const tabs=document.getElementById('indtabs');
+  if(tabs&&tabs.children) for(const el of tabs.children) el.classList.toggle('on', el.dataset.t===state.indTab);
 }
 
 function renderBoom(rows,q){
@@ -526,7 +656,7 @@ function apply(d){
   renderCycle(d.cycle, d.stage);
   renderFlow(d.flow);
   renderLadder(d.ladder, d.leaders);
-  renderInd(d.ind_top);
+  renderIndMain();
   drawBars(d.history||[]);
 }
 
@@ -577,6 +707,14 @@ document.getElementById('tabs').addEventListener('click',e=>{
 document.getElementById('sortby').addEventListener('change',e=>{
   state.sort=e.target.value;
   if(DATA) renderBoom(DATA.boom||[],document.getElementById('qm').value||'');
+});
+document.getElementById('indtabs').addEventListener('click',e=>{
+  const t=e.target.closest('.tab'); if(!t) return;
+  state.indTab=t.dataset.t; renderIndMain();
+});
+document.getElementById('indsort').addEventListener('change',e=>{
+  state.indSort=e.target.value;
+  if(DATA) renderIndMain();
 });
 document.getElementById('refresh').addEventListener('click',()=>{ loadData(); loadAuction(); });
 
