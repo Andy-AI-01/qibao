@@ -163,6 +163,87 @@ def dt_pool(d):
     return _pool("getTopicDTPool", d, "fund%3Aasc")
 
 
+CONCEPT_BLACK = {
+    "融资融券", "沪股通", "深股通", "MSCI中国", "富时罗素", "标准普尔",
+    "上证180_", "上证50_", "沪深300_", "中证500_", "创业板综", "转债标的",
+    "预盈预增", "预亏预减", "股权激励", "员工持股", "高送转", "破净股",
+    "AH股", "B股", "GDR", "机构重仓", "基金重仓", "QFII重仓", "社保重仓",
+    "券商重仓", "保险重仓", "信托重仓", "参股银行", "参股券商", "参股保险",
+    "参股期货", "举牌", "并购重组", "壳资源", "ST股", "次新股", "低价股",
+    "高股息", "红利股", "昨日涨停", "昨日连板", "昨日触板",
+    "昨日涨停_含一字", "昨日连板_含一字",
+    # 东财"工具箱"类统计标签，无炒作含义
+    "昨日高振幅", "今日高振幅", "高振幅", "东方财富热股", "最近多板",
+    "百日新高", "近期新高", "历史新高", "连续亏损", "亏损股",
+    "破发股", "破增发价股", "high市净率", "高市净率", "低市净率",
+    "题材股", "高换手", "活跃股", "人气股", "热门股", "超跌股",
+    "同花顺热股", "通达信热股", "热度榜", "龙虎榜",
+}
+import re as _re
+_CONCEPT_BAD_RE = _re.compile(
+    r"(中报|年报|季报|一季|三季|业绩|预增|预减|扭亏|快报|预告|"
+    r"增仓|减仓|新进|QFII|社保|险资|信托|盘股|摘帽|市盈率|盘成长|盘价值)")
+_CONCEPT_BAD_PREFIX = _re.compile(r"^(昨日|今日|近期|百日|历史|连续|破)")
+_REGION_RE = _re.compile(
+    r"(北京|上海|天津|重庆|广东|江苏|浙江|山东|河南|河北|湖南|湖北|四川|福建|"
+    r"安徽|江西|陕西|山西|辽宁|吉林|黑龙江|云南|贵州|广西|甘肃|青海|宁夏|"
+    r"新疆|西藏|内蒙|海南|深圳|香港|澳门)")
+
+
+def _concept_ok(nm):
+    if not nm or nm in CONCEPT_BLACK:
+        return False
+    if _CONCEPT_BAD_RE.search(nm):
+        return False
+    if _CONCEPT_BAD_PREFIX.search(nm):
+        return False
+    if _re.match(r"^(19|20)\d{2}", nm):
+        return False
+    if _REGION_RE.search(nm) and ("特区" in nm or "板块" in nm or len(nm) <= 4):
+        return False
+    return True
+
+
+def stock_concepts(code):
+    """单只股票的东财概念列表（失败返回空）"""
+    u = ("https://datacenter-web.eastmoney.com/api/data/v1/get?"
+         "reportName=RPT_F10_CORETHEME_BOARDTYPE"
+         "&columns=SECUCODE,SECURITY_CODE,BOARD_NAME,BOARD_CODE"
+         "&filter=(SECURITY_CODE%3D%22" + code + "%22)"
+         "&pageNumber=1&pageSize=200")
+    t = em_get(u, timeout=12)
+    if not t:
+        return []
+    try:
+        rows = (json.loads(t).get("result") or {}).get("data") or []
+        return [r.get("BOARD_NAME") for r in rows if _concept_ok(r.get("BOARD_NAME"))]
+    except Exception:
+        return []
+
+
+def concept_top(pool_stocks, limit=14):
+    """pool_stocks: [{code,name,lb}] → 概念聚合"""
+    agg = {}
+
+    def work(it):
+        for nm in stock_concepts(it["code"]):
+            a = agg.setdefault(nm, dict(n=0, lb=0, names=[]))
+            a["n"] += 1
+            a["lb"] = max(a["lb"], it["lb"])
+            if len(a["names"]) < 4:
+                a["names"].append(it["name"])
+
+    try:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            list(ex.map(work, pool_stocks[:60]))
+    except Exception:
+        pass
+    rows = [dict(name=k, n=v["n"], max_lb=v["lb"], names=v["names"])
+            for k, v in agg.items() if v["n"] >= 2]
+    rows.sort(key=lambda x: (-x["n"], -x["max_lb"]))
+    return rows[:limit]
+
+
 def industry_map(uni):
     """代码->行业。优先读本地 industry.json（一次抓取永久复用），没有再联网抓"""
     f = os.path.join(DOCS, "industry.json")
@@ -636,6 +717,16 @@ def main():
     else:
         rotor = "电风扇"
 
+    # ---------- 概念催化 ----------
+    try:
+        cpool = [dict(code=str(x.get("c")), name=x.get("n"), lb=int(x.get("lbc") or 1))
+                 for x in list(zt) + list(zb)]
+        ctop = concept_top(cpool)
+        print("  概念 %d 个" % len(ctop), flush=True)
+    except Exception as e:
+        ctop = []
+        print("  概念失败: %s" % type(e).__name__, flush=True)
+
     # ---------- 板块推荐 ----------
     fmap = {x["name"]: x for x in flow_rows}
     picks = []
@@ -708,7 +799,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    buy=[], sell=[], boom=rows, history=[], recent=[],
-                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, concept_top=ctop, ind_top=ind_top, sentiment=sent,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
