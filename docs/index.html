@@ -90,7 +90,15 @@ a{color:inherit;text-decoration:none}
 select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   border-radius:8px;padding:6px 8px;font-size:12.5px;outline:none}
 .duo{display:grid;grid-template-columns:minmax(380px,1.6fr) minmax(220px,1fr);gap:12px}
-@media (max-width:900px){ .duo{grid-template-columns:1fr} }
+.duo.half{grid-template-columns:minmax(300px,1fr) minmax(300px,1fr)}
+@media (max-width:900px){ .duo,.duo.half{grid-template-columns:1fr} }
+.pane{overflow-y:auto;-webkit-overflow-scrolling:touch}
+.pane::-webkit-scrollbar{width:6px}
+.pane::-webkit-scrollbar-thumb{background:#2a3547;border-radius:3px}
+.pane::-webkit-scrollbar-track{background:transparent}
+.sname{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;padding:2px 7px;
+  border-radius:5px;background:rgba(255,255,255,.05);color:#c3cfe0}
+.sname i{font-style:normal;color:#ffd166;font-size:10.5px}
 .lv-row{display:flex;align-items:center;gap:9px;padding:10px 0;border-bottom:1px solid #1c2431}
 .lv-row:last-child{border-bottom:0}
 .lv-num{font-size:20px;font-weight:700;min-width:40px;text-align:right;line-height:1}
@@ -117,8 +125,8 @@ footer b{color:var(--dim)}
   th:first-child,td:first-child{padding-left:10px}
   .hm{display:none}
   .pill{font-size:10px;padding:1px 5px}
-  .scroll{max-height:300px}
-  .scroll.tall{max-height:none}
+  .scroll{max-height:320px}
+  .scroll.tall{max-height:420px}
   input[type=search]{width:120px}
 }
 @media (max-width:420px){ th:nth-child(4),td:nth-child(4){display:none} }
@@ -178,12 +186,15 @@ footer b{color:var(--dim)}
 
 <section class="box" id="sec-flow">
   <div class="box-h">
-    <h2 style="color:var(--green)">● 资金流向</h2>
+    <h2 style="color:var(--green)">● 资金流向 · 早盘解读</h2>
     <span class="cnt" id="cflow">--</span>
     <span class="sp"></span>
     <span class="cnt" id="crotate"></span>
   </div>
-  <div id="tflow" style="padding:0"></div>
+  <div class="duo half">
+    <div id="tflow" class="pane" style="padding:0;max-height:470px;border-right:1px solid var(--line)"></div>
+    <div id="tbrief" class="pane" style="padding:10px 14px;max-height:470px"></div>
+  </div>
 </section>
 
 <section class="box" id="sec-ladder">
@@ -191,7 +202,7 @@ footer b{color:var(--dim)}
     <h2 style="color:var(--red)">● 连板梯队</h2>
     <span class="cnt" id="cladder">--</span>
   </div>
-  <div id="tladder" style="padding:10px 14px 14px"></div>
+  <div id="tladder" class="pane" style="padding:10px 14px 14px;max-height:430px"></div>
 </section>
 
 <section class="box" id="sec-ind">
@@ -213,8 +224,8 @@ footer b{color:var(--dim)}
     </select>
   </div>
   <div class="duo">
-    <div id="tind"></div>
-    <div id="tlv" style="padding:4px 14px 12px;border-left:1px solid var(--line)"></div>
+    <div id="tind" class="pane" style="max-height:530px"></div>
+    <div id="tlv" class="pane" style="padding:4px 14px 12px;border-left:1px solid var(--line);max-height:530px"></div>
   </div>
 </section>
 
@@ -309,6 +320,8 @@ function renderPick(picks, stage){
         ${x.reasons.map(r=>`<span style="display:inline-block;background:rgba(255,255,255,.05);padding:1px 6px;border-radius:4px;margin:2px 3px 0 0">${r}</span>`).join('')}
       </div>
       <div style="margin-top:6px;font-size:11px;color:#5a6779">${(x.names||[]).join('、')}</div>
+      ${(x.stocks&&x.stocks.length)?`<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">${
+        x.stocks.slice(0,6).map(s=>`<span class="sname">${esc(s.n)}<i>${s.lb||1}板</i></span>`).join('')}</div>`:''}
     </div>`;
   }
   h+='</div>';
@@ -342,6 +355,44 @@ function renderCycle(cy, stage){
   box.innerHTML=h;
   document.getElementById('cstage').innerHTML=
     `<span style="color:${COL[stage]||'#8b98ad'};font-weight:700;font-size:13px">当前：${stage||'--'}</span>`;
+}
+
+function renderBrief(b){
+  const box=document.getElementById('tbrief');
+  if(!box) return;
+  if(!b||!b.lines||!b.lines.length){
+    box.innerHTML='<div style="color:#5a6779;font-size:12.5px;line-height:1.9">'+
+      '暂无早盘解读<br><span style="font-size:11.5px">（需要涨停池与板块数据，抓取失败时这里为空）</span></div>';
+    return;
+  }
+  const tc={r:'#ff4d5e',y:'#facc15',g:'#22c55e'}[b.tone]||'#8b98ad';
+  let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <span class="pill" style="background:${tc}22;color:${tc};border:1px solid ${tc}55;font-weight:700">${b.mood||'盘面'}</span>
+    <span style="font-size:11.5px;color:var(--dim)">涨停${b.zt||0} ／ 炸板率${b.rate||0}% ／ 最高${b.max_lb||0}板</span>
+  </div>`;
+  for(const t of b.lines){
+    h+=`<div style="font-size:12.5px;line-height:1.75;color:#c3cfe0;margin-bottom:3px">· ${esc(t)}</div>`;
+  }
+  if(b.logic&&b.logic.length){
+    h+='<div style="margin-top:10px;font-size:12px;color:var(--amber);font-weight:700">推荐炒作逻辑</div>';
+    b.logic.forEach((L,i)=>{
+      const col=i===0?'#ff4d5e':'#2a3547';
+      h+=`<div style="margin-top:6px;padding:7px 9px;background:rgba(255,255,255,.03);border-left:2px solid ${col};border-radius:0 6px 6px 0">
+        <div style="font-size:12.5px;font-weight:600">${esc(L.blk)}
+          <span style="color:var(--dim);font-weight:400;font-size:11.5px">${L.n}家涨停 · ${L.cont||0}连板 · ${esc(L.high||'-')}</span></div>`;
+      if(L.why&&L.why.length){
+        h+=`<div style="font-size:11.5px;color:var(--cyan);line-height:1.65;margin-top:3px">${L.why.map(w=>esc(w)).join('；')}</div>`;
+      }
+      const ss=(L.stocks||[]).map(s=>`<span class="sname">${esc(s.n)}<i>${s.lb||1}板</i></span>`).join('');
+      if(ss) h+=`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px">${ss}</div>`;
+      h+='</div>';
+    });
+  }
+  if(b.advice){
+    h+=`<div style="margin-top:10px;font-size:12px;line-height:1.75;color:#ffd166;border-top:1px dashed #24303f;padding-top:8px">
+      <b>操作：</b>${esc(b.advice)}</div>`;
+  }
+  box.innerHTML=h;
 }
 
 function renderFlow(f){
@@ -823,6 +874,7 @@ function apply(d){
   renderPick(d.picks, d.stage);
   renderCycle(d.cycle, d.stage);
   renderFlow(d.flow);
+  renderBrief(d.brief);
   renderLadder(d.ladder, d.leaders);
   renderIndMain();
   drawBars(d.history||[]);
