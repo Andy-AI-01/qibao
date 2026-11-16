@@ -106,6 +106,16 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
 .whos i{font-style:normal;color:#ff4d5e;margin-left:3px}
 .kw{color:#ff9aa2;background:rgba(255,77,94,.13);border-radius:3px;
   padding:0 2px;font-weight:600;font-style:normal}
+.auhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid #2a3547;
+  border-radius:10px;padding:8px 12px;margin-bottom:6px;background:rgba(255,255,255,.02)}
+.aulevel{font-size:12.5px;font-weight:700;border:1px solid;border-radius:6px;padding:2px 8px}
+.auidx{flex:1;text-align:right;font-size:11.5px;color:var(--dim)}
+.aureasons{font-size:11.5px;line-height:1.85;color:#a9b8cc;margin:2px 0 10px 2px}
+.ausub{font-size:11.5px;color:#ffd166;font-weight:700;margin:12px 0 5px}
+.audragon{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;
+  padding:7px 10px;border:1px solid #223041;border-radius:9px;background:rgba(255,255,255,.02)}
+.aufollow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:#c3cfe0}
+.aunote{font-size:11px;color:#5a6779;margin-top:8px;line-height:1.7}
 .why{cursor:pointer}
 .why .more{color:#ffd166;margin-left:2px;font-weight:700}
 .why:hover{color:#fff}
@@ -168,16 +178,6 @@ footer b{color:var(--dim)}
   <div class="card"><div class="n" id="idx">--</div><div class="l" id="idxn">上证指数</div></div>
 </div>
 
-<section class="box" id="sec-au">
-  <div class="box-h">
-    <h2 style="color:var(--cyan)">● 集合竞价抢筹</h2>
-    <span class="cnt" id="cau">--</span>
-    <span class="sp"></span>
-    <span class="cnt" id="autime">9:26 自动采集</span>
-  </div>
-  <div class="scroll" id="tau-wrapper"><div id="tau"></div></div>
-</section>
-
 <section class="box" id="sec-pick">
   <div class="box-h">
     <h2 style="color:var(--amber)">● 板块推荐</h2>
@@ -219,8 +219,15 @@ footer b{color:var(--dim)}
   <div class="box-h">
     <h2 style="color:var(--red)">● 连板梯队</h2>
     <span class="cnt" id="cladder">--</span>
+    <span class="sp"></span>
+    <h2 style="color:var(--cyan)">● 集合竞价三判</h2>
+    <span class="cnt" id="cau">--</span>
+    <span class="cnt" id="autime">9:25 自动采集</span>
   </div>
-  <div id="tladder" class="pane" style="padding:10px 14px 14px;max-height:430px"></div>
+  <div class="duo half">
+    <div id="tladder" class="pane" style="padding:10px 14px 14px;max-height:640px"></div>
+    <div class="pane" id="tau" style="max-height:640px"></div>
+  </div>
 </section>
 
 <section class="box" id="sec-ind">
@@ -529,7 +536,7 @@ function renderFlow(f){
 
 function renderLadder(L, leaders){
   const box=document.getElementById('tladder');
-  if(!L){ document.getElementById('sec-ladder').style.display='none'; return; }
+  if(!L){ const tl=document.getElementById('tladder'); if(tl) tl.innerHTML='<div class="empty">今日无涨停梯队</div>'; return; }
   const ldr = new Set((leaders||[]).map(z=>z.code));
   const gs=[['4+','4板以上','r'],['3','3板','r'],['2','2板','y'],['1','首板','w']];
   let total=0, h='';
@@ -869,35 +876,91 @@ function renderBoom(rows,q){
 function renderAuction(a){
   const box=document.getElementById('tau');
   const tEl=document.getElementById('autime');
-  if(!a){ box.innerHTML='<div class="empty">尚未采集集合竞价数据</div>'; document.getElementById('cau').textContent='--'; return; }
-  tEl.textContent=(a.valid?('采集 '+a.date+' '+a.time):(a.message||'非竞价时段'));
-  if(!a.valid){
-    document.getElementById('cau').textContent='--';
-    box.innerHTML='<div class="empty">'+(a.message||'非竞价时段，暂无数据')+
-      '<br><span style="font-size:11.5px;color:#5a6779">每个交易日 9:25 竞价结束后自动采集</span></div>';
+  const setc=(v)=>{ const e=document.getElementById('cau'); if(e) e.textContent=v; };
+  if(!a){ box.innerHTML='<div class="empty">尚未采集集合竞价数据</div>'; setc('--'); return; }
+  tEl.textContent=(a.date||'')+' '+(a.time||'')+(a.valid?' 竞价已采集':' · '+(a.message||'非竞价时段'));
+  const v=a.verdict, IT=a.items||[];
+  setc(v?(v.level+' '+v.score+'/'+(v.max||8)):(IT.length?IT.length+' 只':'--'));
+  if(!IT.length){
+    box.innerHTML='<div class="empty">'+(a.message||'今日竞价无数据')+
+      '<br><span style="font-size:11.5px;color:#5a6779">每个交易日 9:25 自动采集一次</span></div>';
     return;
   }
-  const rows=(a.items||[]).filter(x=>x.lv==='S'||x.lv==='A');
-  document.getElementById('cau').textContent=rows.length+' 只（S/A级）';
-  if(!rows.length){ box.innerHTML='<div class="empty">今日竞价无 S/A 级抢筹</div>'; return; }
-  const CL={S:'r',A:'y'};
-  let h='<table><thead><tr><th>代码</th><th>名称</th><th>竞价价</th><th>高开</th>'+
-        '<th class="hm">竞价额(万)</th><th>占昨量</th><th class="hm">占5日均量</th>'+
-        '<th style="text-align:left">级别</th><th class="hm" style="text-align:left">关联</th></tr></thead><tbody>';
-  for(const r of rows){
-    const rel=[r.in_buy?'昨日买点':'',r.in_boom?'昨日起爆':''].filter(Boolean).join(' / ')||'-';
+  const pick=(p,ar)=>{
+    if(p>=5&&ar>=3) return ['抢筹','r'];
+    if(p>=2) return ['强势','y'];
+    if(p>=0) return ['平开','z'];
+    return ['转弱','g'];
+  };
+  let h='';
+  if(v){
+    const col=v.cls==='r'?'#ff4d5e':(v.cls==='y'?'#ffc451':'#22c98a');
+    h+=`<div class="auhead" style="border-color:${col}33">
+      <span class="aulevel" style="color:${col};border-color:${col}55">${v.level}</span>
+      <b style="color:${col}">${v.score}/${v.max||8}</b>
+      <span class="auidx">${(a.idx||[]).map(i=>`<em style="font-style:normal;margin-right:8px">${i.name}<b class="${i.pct>0?'up':'down'}">${i.pct>0?'+':''}${i.pct}%</b></em>`).join('')}</span>
+    </div>
+    <div class="aureasons">${(v.reasons||[]).map(r=>`<div>· ${esc(r)}</div>`).join('')}</div>`;
+  }
+  if(a.dragons&&a.dragons.length){
+    h+='<div class="ausub">空间龙（量价是否延续昨日强势）</div>';
+    a.dragons.forEach(d=>{
+      h+=`<div class="audragon">
+        <a class="code" href="${link(d.code)}" target="_blank">${d.code}</a>
+        <span class="name">${esc(d.name)}</span>
+        <span class="pill w">${d.lb}板</span>
+        <span class="${d.pct>0?'up':'down'}" style="font-weight:700">${d.pct>0?'+':''}${d.pct}%</span>
+        <span class="hm">占昨额 ${d.ar}%</span>
+        <span class="hm">封单 ${d.seal}亿</span>
+        <span class="pill ${d.cls}">${esc(d.verdict)}</span>
+      </div>`;
+    });
+  }
+  if(a.ladder&&a.ladder.length){
+    h+='<div class="ausub">梯队晋级（高开≥3% 占比看有没有人跟）</div>';
+    h+='<table><thead><tr><th>梯队</th><th class="hm">只数</th><th>平均高开</th>'+
+       '<th class="hm">高开≥3%</th><th class="hm">竞价额占昨额</th><th style="text-align:left">判定</th>'+
+       '<th class="hm" style="text-align:left">成分</th></tr></thead><tbody>';
+    a.ladder.forEach(x=>{
+      h+=`<tr><td><span class="pill ${x.cls}">${x.lb}</span></td>
+        <td class="hm">${x.n}</td>
+        <td class="${x.avg_pct>0?'up':'down'}">${x.avg_pct>0?'+':''}${x.avg_pct}%</td>
+        <td class="hm">${x.hi3} 只（${Math.round(x.ratio3*100)}%）</td>
+        <td class="hm">${x.avg_ar}%</td>
+        <td style="text-align:left">${esc(x.verdict)}</td>
+        <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).join('、')}</td></tr>`;
+    });
+    h+='</tbody></table>';
+  }
+  if(a.follow){
+    const f=a.follow;
+    h+=`<div class="ausub">跟风梯队（昨日首板今日竞价）</div>
+      <div class="aufollow"><span class="pill ${f.cls}">${esc(f.verdict)}</span>
+      <span class="hm">${f.n} 只</span>
+      <span>平均高开 <b class="${f.avg_pct>0?'up':'down'}">${f.avg_pct>0?'+':''}${f.avg_pct}%</b></span>
+      <span class="hm">高开≥2% ${f.hi2} 只（${Math.round(f.ratio2*100)}%）</span>
+      <span class="hm">占昨额 ${f.avg_ar}%</span></div>`;
+  }
+  h+='<div class="ausub">明细（连板数 → 竞价额占昨额排序）</div>';
+  h+='<table><thead><tr><th>代码</th><th>名称</th><th class="hm">连板</th><th>竞价价</th>'+
+     '<th>高开</th><th class="hm">竞价额(万)</th><th class="hm">占昨额</th>'+
+     '<th style="text-align:left">判定</th><th class="hm" style="text-align:left">昨因</th></tr></thead><tbody>';
+  IT.slice(0,60).forEach(r=>{
+    const [t,c]=pick(r.pct,r.ar);
     h+=`<tr>
       <td><a class="code" href="${link(r.code)}" target="_blank">${r.code}</a></td>
-      <td><span class="name">${r.name}</span></td>
+      <td><span class="name">${esc(r.name)}</span></td>
+      <td class="hm">${r.lb>=2?`<span class="pill r">${r.lb}板</span>`:'首板'}</td>
       <td>${r.op.toFixed(2)}</td>
-      <td class="${r.gap>0?'up':'down'}">${r.gap>0?'+':''}${r.gap.toFixed(2)}%</td>
-      <td class="hm">${r.amt.toFixed(0)}</td>
-      <td class="${r.ratio>=10?'up':''}">${r.ratio.toFixed(1)}%</td>
-      <td class="hm">${r.ratio5.toFixed(0)}%</td>
-      <td style="text-align:left"><span class="pill ${CL[r.lv]}">${r.lv}级</span></td>
-      <td class="hm" style="text-align:left;color:var(--dim)">${rel}</td></tr>`;
-  }
-  box.innerHTML=h+'</tbody></table>';
+      <td class="${r.pct>0?'up':'down'}">${r.pct>0?'+':''}${r.pct}%</td>
+      <td class="hm">${r.amt}</td>
+      <td class="hm ${r.ar>=3?'up':''}">${r.ar}%</td>
+      <td style="text-align:left"><span class="pill ${c}">${t}</span></td>
+      <td class="hm" style="text-align:left;color:var(--dim)">${esc((r.reason||'').slice(0,16))}</td></tr>`;
+  });
+  h+='</tbody></table>';
+  if(!a.valid) h+='<div class="aunote">当前非 9:24-9:30 采集窗口，「占昨额」用的是全天成交额，数值偏大仅供参考；真实竞价量比以 9:25 那次采集为准。</div>';
+  box.innerHTML=h;
 }
 
 function drawBars(hist){
@@ -991,14 +1054,15 @@ async function loadData(){
   }
 }
 async function loadAuction(){
-  const sec=document.getElementById('sec-au');
+  const box=document.getElementById('tau');
+  const show=(on)=>{ if(box) box.style.display=on?'':'none'; };
   try{
     const r=await fetch('./auction.json?t='+Date.now(),{cache:'no-store'});
-    if(r.ok){ renderAuction(await r.json()); sec.style.display=''; }
-    else { sec.style.display='none'; }        // 没有竞价数据（云端版）就整块隐藏
+    if(r.ok){ renderAuction(await r.json()); show(true); }
+    else { show(false); }
   }catch(e){
-    if(window.__AUCTION__){ renderAuction(window.__AUCTION__); sec.style.display=''; }
-    else sec.style.display='none';
+    if(window.__AUCTION__){ renderAuction(window.__AUCTION__); show(true); }
+    else show(false);
   }
 }
 document.getElementById('qm').addEventListener('input',e=>{
