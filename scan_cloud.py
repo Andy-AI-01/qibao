@@ -558,14 +558,188 @@ def analyse(bars):
                 if Z(hh120, t) > Z(ll120, t) else 50.0)
 
 
-def do_auction(uni):
-    """云端版不采集竞价（定时任务延迟不可控，采到的不是真实竞价量）"""
+def _lb_num(hd):
+    ns = re.findall(r"\d+", hd or "")
+    return int(ns[-1]) if ns else 1
+
+
+def _sym(code):
+    c = str(code)
+    if c[0] == "6":
+        return "sh" + c
+    if c[:2] in ("83", "87", "88", "92") or c[0] == "4":
+        return "bj" + c
+    return "sz" + c
+
+
+def _au_time_ok(now):
+    """竞价数据只在 9:24:30 - 9:31:00 之间可信"""
+    return (now.hour == 9 and 24 <= now.minute <= 31)
+
+
+def _dragon_verdict(pct, ar):
+    if pct >= 5 and ar >= 3:
+        return "延续强势·资金抢筹", "r", 3
+    if pct >= 2 and ar >= 1.5:
+        return "延续·温和承接", "y", 2
+    if pct >= 0:
+        return "分歧待定", "y", 1
+    return "转弱·防炸板", "g", 0
+
+
+def _ladder_verdict(ratio3):
+    if ratio3 >= 0.5:
+        return "梯队完整·晋级意愿强", "r", 3
+    if ratio3 >= 0.33:
+        return "分化·部分晋级", "y", 2
+    if ratio3 >= 0.17:
+        return "偏弱·只有龙头", "y", 1
+    return "断层·无人跟", "g", 0
+
+
+def do_auction(uni=None):
+    """9:25 集合竞价三判：空间龙量价 / 梯队晋级 / 资金是否认可"""
     now = bjnow()
-    payload = dict(date=now.strftime("%Y-%m-%d"), time=now.strftime("%H:%M"),
-                   valid=False, message="云端版不采集集合竞价，请在本地版查看", items=[])
-    json.dump(payload, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
+    prev = now - datetime.timedelta(days=1)
+    while prev.weekday() >= 5:
+        prev -= datetime.timedelta(days=1)
+    ps = prev.strftime("%Y%m%d")
+    out = dict(date=now.strftime("%Y-%m-%d"), time=now.strftime("%H:%M:%S"),
+               prev=prev.strftime("%Y-%m-%d"), valid=False, items=[], dragon=None,
+               dragons=[], ladder=[], follow=None, verdict=None, idx=[],
+               message="")
+    pool = (ths_get("limit_up_pool", ps,
+                    "&page=1&limit=300&field=" + THS_FIELD +
+                    "&order_field=330329&order_type=0") or {}).get("info") or []
+    if not pool:
+        out["message"] = "未取到昨日涨停池"
+        json.dump(out, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False)
+        print("auction: 昨日涨停池为空")
+        return out
+    base = {}
+    for it in pool:
+        c = str(it.get("code") or "")
+        if not c:
+            continue
+        cv = float(it.get("currency_value") or 0)
+        tv = float(it.get("turnover_rate") or 0)
+        base[c] = dict(code=c, name=(it.get("name") or "").strip(),
+                       lb=_lb_num(it.get("high_days")), hd=it.get("high_days") or "",
+                       seal=round(float(it.get("order_amount") or 0) / 1e8, 2),
+                       tov=round(tv, 2), opn=int(it.get("open_num") or 0),
+                       ftime=int(it.get("first_limit_up_time") or 0),
+                       reason=(it.get("reason_type") or "").strip(),
+                       prev_amt=cv * tv / 100.0)
+    q = snapshot([_sym(c) for c in base])
+    rows = []
+    for c, b in base.items():
+        s = q.get(c) or {}
+        op = float(s.get("op") or 0)
+        pv = float(s.get("prev") or 0)
+        if op <= 0 or pv <= 0:
+            continue
+        amt = float(s.get("amt") or 0)
+        pct = round((op - pv) / pv * 100, 2)
+        ar = round(amt / b["prev_amt"] * 100, 2) if b["prev_amt"] > 0 else 0.0
+        b.update(op=round(op, 2), pct=pct, ar=ar, amt=round(amt / 1e4, 0))
+        rows.append(b)
+    if not rows:
+        out["message"] = "竞价快照为空（非交易时段或接口限流）"
+        json.dump(out, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False)
+        print("auction: 快照为空")
+        return out
+
+    rows.sort(key=lambda x: (-x["lb"], -x["ar"]))
+    out["items"] = rows
+    out["valid"] = _au_time_ok(now)
+    if not out["valid"]:
+        out["message"] = "非竞价时段（%s），金额不可用，仅供竞价涨幅参考" % now.strftime("%H:%M")
+
+    for it in indexes():
+        out["idx"].append(dict(name=it["name"], pct=round(float(it.get("chg") or 0), 2)))
+
+    # ---- ① 空间龙 ----
+    maxlb = max(x["lb"] for x in rows)
+    tops = [x for x in rows if x["lb"] == maxlb]
+    tops.sort(key=lambda x: (-x["seal"], -x["ar"]))
+    dl = []
+    for t in tops[:3]:
+        v, cl, sc = _dragon_verdict(t["pct"], t["ar"])
+        dl.append(dict(code=t["code"], name=t["name"], lb=t["lb"], hd=t["hd"],
+                       pct=t["pct"], ar=t["ar"], amt=t["amt"], seal=t["seal"],
+                       reason=t["reason"], verdict=v, cls=cl, score=sc))
+    out["dragons"] = dl
+    out["dragon"] = dl[0] if dl else None
+    d_score = dl[0]["score"] if dl else 0
+
+    # ---- ② 连板梯队 ----
+    groups = [(4, "4板+"), (3, "3板"), (2, "2板"), (1, "首板")]
+    ladder = []
+    for lb, nm in groups:
+        g = [x for x in rows if (x["lb"] >= 4 if lb == 4 else x["lb"] == lb)]
+        if not g:
+            continue
+        n = len(g)
+        avg_pct = round(sum(x["pct"] for x in g) / n, 2)
+        hi = len([x for x in g if x["pct"] >= 3.0])
+        r3 = round(hi / float(n), 2)
+        avg_ar = round(sum(x["ar"] for x in g) / n, 2)
+        v, cl, sc = _ladder_verdict(r3)
+        ladder.append(dict(lb=nm, n=n, avg_pct=avg_pct, hi3=hi, ratio3=r3,
+                           avg_ar=avg_ar, verdict=v, cls=cl, score=sc,
+                           names=[x["name"] for x in g[:6]]))
+    out["ladder"] = ladder
+    l_score = next((x["score"] for x in ladder if x["lb"] == "2板"), 0)
+    if not l_score and ladder:
+        l_score = max(x["score"] for x in ladder)
+
+    # ---- ③ 跟风（昨日首板） ----
+    fb = [x for x in rows if x["lb"] == 1]
+    if fb:
+        n = len(fb)
+        hi2 = len([x for x in fb if x["pct"] >= 2.0])
+        r2 = round(hi2 / float(n), 2)
+        avg = round(sum(x["pct"] for x in fb) / n, 2)
+        f_score = 2 if r2 >= 0.5 else (1 if r2 >= 0.3 else 0)
+        out["follow"] = dict(n=n, avg_pct=avg, hi2=hi2, ratio2=r2,
+                             avg_ar=round(sum(x["ar"] for x in fb) / n, 2),
+                             verdict=("跟风积极·可接力" if r2 >= 0.5 else
+                                      ("跟风一般·只做龙一" if r2 >= 0.3 else "跟风退潮·纯龙头行情")),
+                             cls=("r" if r2 >= 0.5 else ("y" if r2 >= 0.3 else "g")),
+                             score=f_score)
+    f_score = (out["follow"] or {}).get("score", 0)
+
+    # ---- ④ 资金认可总判 ----
+    total = d_score + l_score + f_score
+    if total >= 6:
+        lvl, cl = "资金认可", "r"
+    elif total >= 4:
+        lvl, cl = "中性分歧", "y"
+    else:
+        lvl, cl = "资金不认可", "g"
+    reasons = []
+    if dl:
+        reasons.append("空间龙 %s %d板 高开%+.2f%%、竞价额占昨额 %.2f%% → %s"
+                       % (dl[0]["name"], dl[0]["lb"], dl[0]["pct"], dl[0]["ar"], dl[0]["verdict"]))
+    l2 = next((x for x in ladder if x["lb"] == "2板"), None)
+    if l2:
+        reasons.append("2板梯队 %d 只，高开≥3%% 占 %d%%（%d只），平均高开 %+.2f%%"
+                       % (l2["n"], round(l2["ratio3"] * 100), l2["hi3"], l2["avg_pct"]))
+    if out["follow"]:
+        fo = out["follow"]
+        reasons.append("昨日首板 %d 只，高开≥2%% 占 %d%%（%d只）→ %s"
+                       % (fo["n"], round(fo["ratio2"] * 100), fo["hi2"], fo["verdict"]))
+    if out["idx"]:
+        reasons.append("指数竞价：" + "、".join("%s%+.2f%%" % (i["name"], i["pct"]) for i in out["idx"]))
+    out["verdict"] = dict(level=lvl, cls=cl, score=total, max=8, reasons=reasons,
+                          parts=dict(dragon=d_score, ladder=l_score, follow=f_score))
+    json.dump(out, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
               ensure_ascii=False)
-    print("auction skipped (cloud version)")
+    print("auction: 昨日涨停%d 采集%d 龙%s 总判%d/%d"
+          % (len(base), len(rows), (dl[0]["name"] if dl else "-"), total, 8))
+    return out
 
 
 NEWS_URL = ("https://news.10jqka.com.cn/tapp/news/push/stock/"
@@ -1232,6 +1406,6 @@ def main():
 
 if __name__ == "__main__":
     if "--auction" in sys.argv:
-        do_auction(universe())
+        do_auction(None)
     else:
         main()
