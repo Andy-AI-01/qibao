@@ -6,7 +6,7 @@
   python scan_cloud.py --auction  # 采集集合竞价（9:15~9:40）
 输出：docs/data.json / docs/data.js / docs/auction.json
 """
-import os, sys, json, time, urllib.request, datetime
+import os, sys, json, time, re, urllib.request, datetime
 from collections import deque, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -161,6 +161,75 @@ def zb_pool(d):
 
 def dt_pool(d):
     return _pool("getTopicDTPool", d, "fund%3Aasc")
+
+
+# ---------------- 同花顺涨停池 / 异动解读 ----------------
+THS_HDR = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
+    "Referer": "https://data.10jqka.com.cn/datacenterph/limitup/limtupInfo.html",
+    "Accept": "application/json, text/plain, */*",
+    "Connection": "close",
+}
+THS_FIELD = "199112,10,9001,330323,9002,330329,133971,133970,1968584,3475914,9004,9005"
+
+
+def ths_get(path, date_str, extra=""):
+    u = "https://data.10jqka.com.cn/dataapi/limit_up/%s?filter=HS,GEM2STAR&date=%s%s" % (
+        path, date_str, extra)
+    for i in range(2):
+        try:
+            t = urllib.request.urlopen(
+                urllib.request.Request(u, headers=THS_HDR), timeout=25).read().decode("utf-8", "ignore")
+            j = json.loads(t)
+            if j.get("status_code") == 0:
+                return j.get("data")
+        except Exception:
+            time.sleep(0.4 * (i + 1))
+    return None
+
+
+BLK_BAD_RE = re.compile(r"(预增|预减|扭亏|中报|年报|季报|高送转|送转|摘帽|破净|次新|低价|"
+                        r"高股息|红利|融资融券|转债标的|股权激励|员工持股|增持|回购|"
+                        r"机构重仓|基金重仓|QFII|社保|险资|参股银行|参股券商|参股保险)")
+
+
+def ths_zt_detail(d):
+    """涨停池 + 板块异动解读。返回 (zt_map, blocks, detail)"""
+    zt_map = {}
+    d0 = ths_get("limit_up_pool", d,
+                 "&page=1&limit=200&field=" + THS_FIELD + "&order_field=330329&order_type=0")
+    for it in ((d0 or {}).get("info") or []):
+        zt_map[str(it.get("code"))] = dict(
+            name=it.get("name") or "",
+            reason=(it.get("reason_type") or "").strip(),
+            hd=it.get("high_days") or "",
+            seal=round((it.get("order_amount") or 0) / 1e8, 2),
+            opn=int(it.get("open_num") or 0),
+            hs=round(float(it.get("turnover_rate") or 0), 2),
+            again=int(it.get("is_again_limit") or 0))
+    blocks, detail = [], {}
+    for b in (ths_get("block_top", d) or []):
+        bd = dict(name=b.get("name") or "", n=int(b.get("limit_up_num") or 0),
+                  cont=int(b.get("continuous_plate_num") or 0),
+                  high=b.get("high") or "", days=int(b.get("days") or 0),
+                  names=[], codes=[])
+        for s in (b.get("stock_list") or []):
+            c = str(s.get("code"))
+            nm = s.get("name") or ""
+            if len(bd["names"]) < 6:
+                bd["names"].append(nm)
+            if len(bd["codes"]) < 6:
+                bd["codes"].append(c)
+            ri = (s.get("reason_info") or "").strip()
+            if ri and c not in detail:
+                ri = ri.split("（免责声明")[0].strip()
+                ri = ri.replace("\n", " ")
+                detail[c] = ri[:300]
+        if bd["n"] >= 2 and not BLK_BAD_RE.search(bd["name"]):
+            blocks.append(bd)
+    blocks.sort(key=lambda x: (-x["n"], -x["cont"]))
+    return zt_map, blocks, detail
 
 
 # ---------------- 字辈 / 名字炒作 ----------------
@@ -588,6 +657,14 @@ def main():
     dtp = dt_pool(dstr)
     print("涨停 %d 炸板 %d 跌停 %d 行业映射 %d" % (len(zt), len(zb), len(dtp), len(ind_map)), flush=True)
 
+    # ---------- 同花顺异动解读（板块 + 一句话原因 + 全文解读） ----------
+    tzt, tblk, tdet = {}, [], {}
+    try:
+        tzt, tblk, tdet = ths_zt_detail(dstr)
+        print("  同花顺 涨停%d 板块%d 解读%d" % (len(tzt), len(tblk), len(tdet)), flush=True)
+    except Exception as e:
+        print("  同花顺失败: %s" % type(e).__name__, flush=True)
+
     ind_stat = {}
     for x in zt:
         h = x.get("hybk") or ind_map.get(str(x.get("c"))) or "其他"
@@ -613,6 +690,13 @@ def main():
         r["ztj"] = ("%d天%d板" % (tj.get("days", 0), tj.get("ct", 0))) if tj else ""
         r["zbc"] = int((src or {}).get("zbc") or 0)
         r["fbt"] = int((src or {}).get("fbt") or 0)
+        t = tzt.get(r["code"]) or {}
+        r["reason"] = t.get("reason", "")
+        r["desc"] = tdet.get(r["code"], "")
+        if t.get("hd") and not r.get("ztj"):
+            r["ztj"] = t["hd"]
+        if t.get("seal"):
+            r["seal"] = t["seal"]
         if zz is not None and z is None:
             r["tags"].append("炸板")
             r["score"] = r.get("score", 0) - 2
@@ -888,6 +972,12 @@ def main():
                                indexes=indexes()),
                    buy=[], sell=[], boom=rows, history=[], recent=[],
                    ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
+                   ths_blocks=tblk,
+                   ths_zt=[dict(code=k, name=v.get("name", ""), reason=v.get("reason", ""),
+                                hd=v.get("hd", ""), seal=v.get("seal", 0),
+                                hs=v.get("hs", 0), opn=v.get("opn", 0))
+                           for k, v in tzt.items()],
+                   ths_desc=tdet,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
