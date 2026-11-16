@@ -66,6 +66,13 @@ a{color:inherit;text-decoration:none}
   vertical-align:bottom;color:var(--cyan);font-size:12px;cursor:help}
 .note{font-size:12px;color:var(--dim);line-height:1.6;margin:5px 0 9px;padding-left:8px;
   border-left:2px solid var(--line)}
+.xr{cursor:pointer}
+.xr:hover>td{background:rgba(255,255,255,.035)}
+.caret{display:inline-block;transition:transform .15s;color:#5a6779;margin-right:4px;font-size:10px}
+.caret.open{transform:rotate(90deg);color:var(--amber)}
+.xdet>td{padding:0!important;border-bottom:1px solid var(--line)}
+.fhead{cursor:pointer;user-select:none}
+.fhead:hover{background:rgba(255,255,255,.03)}
 .pill.y{background:rgba(245,158,11,.18);color:var(--amber)}
 .pill.r{background:rgba(255,77,94,.18);color:var(--red)}
 .pill.w{background:rgba(230,235,245,.16);color:#fff}
@@ -254,7 +261,21 @@ footer b{color:var(--dim)}
 <script src="data.js"></script>
 <script>
 let DATA=null;
-const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk'};
+const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}};
+const EXPDATA={};
+function stockTable(stocks){
+  if(!stocks||!stocks.length) return '<div style="padding:8px 12px;color:#5a6779;font-size:12px">今日无个股明细</div>';
+  const arr=stocks.slice().sort((a,b)=>(b.lb||0)-(a.lb||0)||(b.chg||0)-(a.chg||0));
+  let h='<div style="padding:6px 12px 10px;background:#0e131b">'+
+        '<table style="font-size:12px"><thead><tr><th>代码</th><th>名称</th>'+
+        '<th class="hm">连板</th><th>涨幅</th></tr></thead><tbody>';
+  for(const s of arr){
+    h+=`<tr><td style="color:#7b8aa0">${s.c}</td><td>${esc(s.n)}</td>
+        <td class="hm ${(s.lb||0)>=3?'up':''}">${s.lb?(s.lb+'板'):'首板'}</td>
+        <td class="${(s.chg||0)>0?'up':'down'}">${(s.chg||0)>0?'+':''}${(s.chg||0).toFixed(2)}%</td></tr>`;
+  }
+  return h+'</tbody></table></div>';
+}
 const SORTKEY={score:'score', lbc:'lbc', vol_ratio:'vol_ratio', chg:'chg', amt:'amt', cap:'cap', pos:'pos'};
 function link(code){ const p=(code[0]==='6'||code[0]==='9')?'sh':'sz';
   return `https://quote.eastmoney.com/${p}${code}.html`; }
@@ -343,12 +364,15 @@ function renderFlow(f){
      ${tip?`<span style="color:${rotorCol[r.rotor]||'#8b98ad'};opacity:.85">· ${tip}</span>`:''}
      <div style="margin-top:4px;max-width:560px">${tops}</div></div>`;
 
-  const tbl=(list,title,color,emptyMsg)=>{
+  const tbl=(list,title,color,emptyMsg,key)=>{
+    const open = (state.fold||{})[key]!==0;
+    let h=`<div class="fhead" data-f="${key}" style="padding:8px 14px 2px;color:${color};font-size:12.5px;font-weight:600">
+      <span class="caret ${open?'open':''}">▸</span>${title}
+      <span style="color:#5a6779;font-weight:400">（${list?list.length:0}）</span></div>`;
+    if(!open) return h;
     if(!list||!list.length){
-      return `<div style="padding:10px 14px;color:#5a6779;font-size:12.5px">
-        <span style="color:${color};font-weight:600">${title}</span>　${emptyMsg||'今日无数据'}</div>`;
+      return h+`<div style="padding:6px 14px 10px;color:#5a6779;font-size:12.5px">${emptyMsg||'今日无数据'}</div>`;
     }
-    let h=`<div style="padding:8px 14px 2px;color:${color};font-size:12.5px;font-weight:600">${title}</div>`;
     h+='<table><thead><tr><th>行业</th><th>今日占比</th><th class="hm">20日均</th><th>变化</th><th class="hm">连升</th><th class="hm">今日涨停</th></tr></thead><tbody>';
     for(const x of list){
       const stay=x.streak>=3?'<span class="pill r">驻扎</span>':(x.streak>=1?'<span class="pill y">升温</span>':'<span class="pill z">过路</span>');
@@ -362,8 +386,8 @@ function renderFlow(f){
     return h+'</tbody></table>';
   };
   box.innerHTML=tbl(f.inflow,'▲ 资金流入（占比上升）','#ff4d5e',
-                    '今日无行业达到流入标准（占比变化 ≥ +20%），全市场资金净流出 —— 不参与')+
-                tbl(f.outflow,'▼ 资金流出（占比下降）','#22c55e','今日无行业明显流出');
+                    '今日无行业达到流入标准（占比变化 ≥ +20%），全市场资金净流出 —— 不参与','fin')+
+                tbl(f.outflow,'▼ 资金流出（占比下降）','#22c55e','今日无行业明显流出','fout');
 }
 
 function renderLadder(L, leaders){
@@ -424,14 +448,16 @@ function renderInd(list, sortKey){
   document.getElementById('cind').textContent=arr.length+' 个行业 · '+tot+' 家涨停';
   let h='<table><thead><tr><th>行业</th><th>涨停</th><th class="hm">最高板</th>'+
         '<th style="text-align:left">催化</th><th class="hm" style="text-align:left">代表股</th></tr></thead><tbody>';
-  for(const x of arr){
+  arr.forEach((x,idx)=>{
     const cls=x.cat==='强催化'?'r':(x.cat==='中催化'?'y':'');
-    h+=`<tr><td><span class="name">${x.name}</span></td>
+    const key='ip'+idx;
+    EXPDATA[key]=x.stocks||[];
+    h+=`<tr class="xr" data-e="${key}"><td><span class="caret">▸</span><span class="name">${x.name}</span></td>
       <td class="${x.n>=4?'up':''}">${x.n}</td>
       <td class="hm">${x.max_lb}板</td>
       <td style="text-align:left">${x.cat?`<span class="pill ${cls}">${x.cat}</span>`:'-'}</td>
       <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,3).join('、')}</td></tr>`;
-  }
+  });
   box.innerHTML=h+'</tbody></table>';
 
   // 右侧：催化等级分布
@@ -474,15 +500,17 @@ function renderConcept(list, sortKey){
   document.getElementById('cind').textContent=arr.length+' 个概念 · 累计 '+tot+' 家次涨停';
   let h='<table><thead><tr><th>概念</th><th>涨停</th><th class="hm">最高板</th>'+
         '<th style="text-align:left">强度</th><th class="hm" style="text-align:left">代表股</th></tr></thead><tbody>';
-  for(const x of arr){
+  arr.forEach((x,idx)=>{
     const g=conceptGrade(x.n);
     const cls=g==='核心'?'r':(g==='次核心'?'y':'');
-    h+=`<tr><td><span class="name">${x.name}</span></td>
+    const key='cp'+idx;
+    EXPDATA[key]=x.stocks||[];
+    h+=`<tr class="xr" data-e="${key}"><td><span class="caret">▸</span><span class="name">${x.name}</span></td>
       <td class="${x.n>=8?'up':''}">${x.n}</td>
       <td class="hm">${x.max_lb}板</td>
       <td style="text-align:left">${g?`<span class="pill ${cls}">${g}</span>`:'-'}</td>
       <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,3).join('、')}</td></tr>`;
-  }
+  });
   box.innerHTML=h+'</tbody></table>';
 
   const g={'核心':[], '次核心':[], '边缘':[]};
@@ -522,15 +550,17 @@ function renderWordplay(list, sortKey){
   document.getElementById('cind').textContent=arr.length+' 组字辈 · 今日 '+arr.reduce((s,x)=>s+x.n,0)+' 家涨停';
   let h='<table><thead><tr><th>字辈</th><th>今日涨停</th><th class="hm">最高板</th>'+
         '<th class="hm">全市场</th><th class="hm">占比</th><th class="hm" style="text-align:left">成员</th></tr></thead><tbody>';
-  for(const x of arr){
+  arr.forEach((x,idx)=>{
     const hot=x.n>=2;
-    h+=`<tr><td><span class="name">${x.name}</span></td>
+    const ek='wp'+idx;
+    EXPDATA[ek]=x.stocks||[];
+    h+=`<tr class="xr" data-e="${ek}"><td><span class="caret">▸</span><span class="name">${x.name}</span></td>
       <td class="${hot?'up':''}">${x.n}</td>
       <td class="hm">${x.max_lb}板</td>
       <td class="hm" style="color:var(--dim)">${x.total}只</td>
       <td class="hm" style="color:${x.pct>=10?'#ff4d5e':'var(--dim)'}">${x.pct}%</td>
       <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,5).join('、')}</td></tr>`;
-  }
+  });
   box.innerHTML=h+'</tbody></table>';
 
   const top=arr[0];
@@ -565,17 +595,19 @@ function renderThsBlk(list, sortKey){
   let h='<table><thead><tr><th>同花顺板块</th><th>涨停</th><th class="hm">连板</th>'+
         '<th class="hm">最高高度</th><th class="hm">持续</th>'+
         '<th class="hm" style="text-align:left">代表股</th></tr></thead><tbody>';
-  for(const b of arr){
+  arr.forEach((b,idx)=>{
     const cls=b.n>=10?'r':(b.n>=5?'y':'');
     const hi=parseInt(b.high||'0',10)||0;
-    h+=`<tr>
-      <td><b>${b.name}</b></td>
+    const key='bp'+idx;
+    EXPDATA[key]=b.stocks||[];
+    h+=`<tr class="xr" data-e="${key}">
+      <td><span class="caret">▸</span><b>${b.name}</b></td>
       <td><span class="pill ${cls}">${b.n}</span></td>
       <td class="hm">${b.cont||'-'}</td>
       <td class="hm ${hi>=4?'up':''}">${b.high||'-'}</td>
       <td class="hm">${b.days?b.days+'天':'-'}</td>
       <td class="hm" style="text-align:left;color:var(--dim)">${(b.names||[]).slice(0,4).join('、')}</td></tr>`;
-  }
+  });
   box.innerHTML=h+'</tbody></table>';
 
   const DESC=(DATA&&DATA.ths_desc)||{};
@@ -853,6 +885,27 @@ document.getElementById('indsort').addEventListener('change',e=>{
   if(DATA) renderIndMain();
 });
 document.getElementById('refresh').addEventListener('click',()=>{ loadData(); loadAuction(); });
+
+/* 资金流向：点击标题折叠/展开 */
+document.getElementById('tflow').addEventListener('click',e=>{
+  const f=e.target.closest('.fhead[data-f]'); if(!f) return;
+  const k=f.dataset.f;
+  state.fold[k]=state.fold[k]===0?1:0;
+  if(DATA&&DATA.flow) renderFlow(DATA.flow);
+});
+
+/* 板块催化：点击行展开该板块/行业/概念/字辈下的个股 */
+document.getElementById('tind').addEventListener('click',e=>{
+  const tr=e.target.closest('tr.xr'); if(!tr) return;
+  const nx=tr.nextElementSibling;
+  if(nx&&nx.classList.contains('xdet')){ nx.remove(); tr.classList.remove('open'); return; }
+  const cols=tr.children.length||1;
+  const det=document.createElement('tr');
+  det.className='xdet';
+  det.innerHTML='<td colspan="'+cols+'">'+stockTable(EXPDATA[tr.dataset.e])+'</td>';
+  tr.after(det);
+  tr.classList.add('open');
+});
 
 let left=60;
 setInterval(()=>{ left--; document.getElementById('cd').textContent=left;
