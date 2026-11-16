@@ -34,9 +34,9 @@ jobs:
 
       - name: auction
         run: |
-          H=$(TZ=Asia/Shanghai date +%H%M)
+          H=$((10#$(TZ=Asia/Shanghai date +%H%M)))
           echo "beijing time $H"
-          if [ "$H" -ge 0923 ] && [ "$H" -le 0931 ]; then
+          if [ "$H" -ge 923 ] && [ "$H" -le 931 ]; then
             python scan_cloud.py --auction || echo "auction failed (not fatal)"
           else
             echo "not auction window, skip"
