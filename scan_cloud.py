@@ -213,7 +213,7 @@ def ths_zt_detail(d):
         bd = dict(name=b.get("name") or "", n=int(b.get("limit_up_num") or 0),
                   cont=int(b.get("continuous_plate_num") or 0),
                   high=b.get("high") or "", days=int(b.get("days") or 0),
-                  names=[], codes=[])
+                  names=[], codes=[], stocks=[])
         for s in (b.get("stock_list") or []):
             c = str(s.get("code"))
             nm = s.get("name") or ""
@@ -221,6 +221,8 @@ def ths_zt_detail(d):
                 bd["names"].append(nm)
             if len(bd["codes"]) < 6:
                 bd["codes"].append(c)
+            bd["stocks"].append(dict(c=c, n=nm, lb=int(s.get("continue_num") or 1),
+                                     chg=round(float(s.get("change_rate") or 0), 2)))
             ri = (s.get("reason_info") or "").strip()
             if ri and c not in detail:
                 ri = ri.split("（免责声明")[0].strip()
@@ -294,7 +296,7 @@ def wordplay(uni, pool_map):
         tot = len(lst)
         if tot < 2:
             continue
-        hit = [(pool_map[s["code"]][0], pool_map[s["code"]][1])
+        hit = [(s["code"],) + tuple(pool_map[s["code"]])
                for s in lst if s.get("code") in pool_map]
         if not hit:
             continue
@@ -302,9 +304,12 @@ def wordplay(uni, pool_map):
         if mp["strict"] and len(hit) < 2 and pct < 15:
             continue
         rows.append(dict(name=g, total=tot, n=len(hit),
-                         max_lb=max(lb for _, lb in hit),
+                         max_lb=max(h[2] for h in hit),
                          pct=round(100.0 * len(hit) / tot, 1),
-                         names=[n for n, _ in hit][:8]))
+                         names=[h[1] for h in hit][:8],
+                         stocks=[dict(c=h[0], n=h[1], lb=h[2],
+                                      chg=round(h[3] if len(h) > 3 else 0, 2))
+                                 for h in hit]))
     rows.sort(key=lambda x: (-x["n"], -x["max_lb"], -x["pct"]))
     return rows[:12]
 
@@ -373,18 +378,20 @@ def concept_top(pool_stocks, limit=14):
 
     def work(it):
         for nm in stock_concepts(it["code"]):
-            a = agg.setdefault(nm, dict(n=0, lb=0, names=[]))
+            a = agg.setdefault(nm, dict(n=0, lb=0, names=[], stocks=[]))
             a["n"] += 1
             a["lb"] = max(a["lb"], it["lb"])
             if len(a["names"]) < 4:
                 a["names"].append(it["name"])
+            a["stocks"].append(dict(c=it["code"], n=it["name"], lb=it["lb"],
+                                    chg=round(it.get("chg") or 0, 2)))
 
     try:
         with ThreadPoolExecutor(max_workers=4) as ex:
             list(ex.map(work, pool_stocks[:60]))
     except Exception:
         pass
-    rows = [dict(name=k, n=v["n"], max_lb=v["lb"], names=v["names"])
+    rows = [dict(name=k, n=v["n"], max_lb=v["lb"], names=v["names"], stocks=v["stocks"])
             for k, v in agg.items() if v["n"] >= 2]
     rows.sort(key=lambda x: (-x["n"], -x["max_lb"]))
     return rows[:limit]
@@ -668,12 +675,14 @@ def main():
     ind_stat = {}
     for x in zt:
         h = x.get("hybk") or ind_map.get(str(x.get("c"))) or "其他"
-        e = ind_stat.setdefault(h, {"n": 0, "max_lb": 0, "names": []})
+        e = ind_stat.setdefault(h, {"n": 0, "max_lb": 0, "names": [], "stocks": []})
         e["n"] += 1
         lb = int(x.get("lbc") or 1)
         e["max_lb"] = max(e["max_lb"], lb)
         if len(e["names"]) < 3:
             e["names"].append(x.get("n"))
+        e["stocks"].append(dict(c=str(x.get("c")), n=x.get("n"), lb=lb,
+                                chg=round(float(x.get("zdp") or 0), 2)))
     for h, e in ind_stat.items():
         e["cat"] = "强催化" if e["n"] >= 4 else ("中催化" if e["n"] >= 2 else "弱催化")
 
@@ -882,7 +891,8 @@ def main():
     try:
         pmap = {}
         for x in list(zt) + list(zb):
-            pmap[str(x.get("c"))] = (x.get("n"), int(x.get("lbc") or 1))
+            pmap[str(x.get("c"))] = (x.get("n"), int(x.get("lbc") or 1),
+                                     round(float(x.get("zdp") or 0), 2))
         wplay = wordplay(uni, pmap)
         print("  字辈 %d 组" % len(wplay), flush=True)
     except Exception as e:
@@ -891,7 +901,8 @@ def main():
 
     # ---------- 概念催化 ----------
     try:
-        cpool = [dict(code=str(x.get("c")), name=x.get("n"), lb=int(x.get("lbc") or 1))
+        cpool = [dict(code=str(x.get("c")), name=x.get("n"), lb=int(x.get("lbc") or 1),
+                      chg=round(float(x.get("zdp") or 0), 2))
                  for x in list(zt) + list(zb)]
         ctop = concept_top(cpool)
         print("  概念 %d 个" % len(ctop), flush=True)
