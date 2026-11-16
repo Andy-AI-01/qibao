@@ -163,6 +163,83 @@ def dt_pool(d):
     return _pool("getTopicDTPool", d, "fund%3Aasc")
 
 
+# ---------------- 字辈 / 名字炒作 ----------------
+ZODIAC = "鼠牛虎兔龙蛇马羊猴鸡狗猪"
+NUM_CHARS = "三四五六七八九一二"
+PLAY_CHARS = ("麒麟", "凤凰", "锂", "熊", "鹰")  # 只留罕见字，常规字噪音太大
+# 常见谐音/影射梗（可自行扩充 docs/playwords.json）
+DEFAULT_KW = [
+    dict(kw="川大智胜", group="谐音梗·特朗普", pos="any"),
+    dict(kw="哈尔斯", group="谐音梗·哈里斯", pos="any"),
+    dict(kw="登云", group="谐音梗·拜登", pos="any"),
+    dict(kw="海能达", group="谐音梗·还能打", pos="any"),
+    dict(kw="澳柯玛", group="谐音梗·奥巴马", pos="any"),
+    dict(kw="三羊马", group="谐音梗·三羊开泰", pos="any"),
+    dict(kw="兔宝宝", group="谐音梗·兔年", pos="any"),
+]
+
+
+def load_playwords():
+    """docs/playwords.json 可选：[{"kw":"羊","group":"羊字辈","pos":"any"}]"""
+    lst = list(DEFAULT_KW)
+    fp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "playwords.json")
+    try:
+        with open(fp, encoding="utf-8") as f:
+            extra = json.load(f)
+        if isinstance(extra, list):
+            lst += [x for x in extra if x.get("kw")]
+    except Exception:
+        pass
+    return lst
+
+
+def wordplay(uni, pool_map):
+    """uni: [{code,name}] ; pool_map: {code:(name,lb)} → 字辈/名字炒作聚合"""
+    custom = load_playwords()
+    # (关键词, 组名, 位置 any|start, 是否严格: 命中少于2家时需要占比达标)
+    rules = []
+    for ch in ZODIAC:
+        rules.append((ch, ch + "字辈", "any", 0))
+    for ch in NUM_CHARS:
+        rules.append((ch, ch + "字头", "start", 0))
+    for ch in PLAY_CHARS:
+        rules.append((ch, "含「%s」" % ch, "any", 1))
+    for it in custom:
+        rules.append((it["kw"], it.get("group") or ("含「%s」" % it["kw"]),
+                      it.get("pos") or "any", int(it.get("strict", 1))))
+
+    seen = {}
+    for s in uni:
+        nm = s.get("name") or ""
+        if len(nm) < 2:
+            continue
+        for kw, grp, pos, strict in rules:
+            hit = nm.startswith(kw) if pos == "start" else (kw in nm)
+            if hit:
+                mp = seen.setdefault(grp, {"strict": strict, "d": {}})
+                mp["d"][s.get("code")] = s
+
+    rows = []
+    for g, mp in seen.items():
+        lst = list(mp["d"].values())
+        tot = len(lst)
+        if tot < 2:
+            continue
+        hit = [(pool_map[s["code"]][0], pool_map[s["code"]][1])
+               for s in lst if s.get("code") in pool_map]
+        if not hit:
+            continue
+        pct = 100.0 * len(hit) / tot
+        if mp["strict"] and len(hit) < 2 and pct < 15:
+            continue
+        rows.append(dict(name=g, total=tot, n=len(hit),
+                         max_lb=max(lb for _, lb in hit),
+                         pct=round(100.0 * len(hit) / tot, 1),
+                         names=[n for n, _ in hit][:8]))
+    rows.sort(key=lambda x: (-x["n"], -x["max_lb"], -x["pct"]))
+    return rows[:12]
+
+
 CONCEPT_BLACK = {
     "融资融券", "沪股通", "深股通", "MSCI中国", "富时罗素", "标准普尔",
     "上证180_", "上证50_", "沪深300_", "中证500_", "创业板综", "转债标的",
@@ -717,6 +794,17 @@ def main():
     else:
         rotor = "电风扇"
 
+    # ---------- 字辈炒作 ----------
+    try:
+        pmap = {}
+        for x in list(zt) + list(zb):
+            pmap[str(x.get("c"))] = (x.get("n"), int(x.get("lbc") or 1))
+        wplay = wordplay(uni, pmap)
+        print("  字辈 %d 组" % len(wplay), flush=True)
+    except Exception as e:
+        wplay = []
+        print("  字辈失败: %s" % type(e).__name__, flush=True)
+
     # ---------- 概念催化 ----------
     try:
         cpool = [dict(code=str(x.get("c")), name=x.get("n"), lb=int(x.get("lbc") or 1))
@@ -799,7 +887,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    buy=[], sell=[], boom=rows, history=[], recent=[],
-                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, concept_top=ctop, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
