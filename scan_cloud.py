@@ -568,6 +568,70 @@ def do_auction(uni):
     print("auction skipped (cloud version)")
 
 
+def build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb):
+    """早盘解读：把当日盘面压成几句人话 + 推荐炒作逻辑 + 相关个股"""
+    zt_n, zb_n, dt_n = len(zt), len(zb), len(dtp)
+    rate = 100.0 * zb_n / max(1, zt_n + zb_n)
+    tone = {"高潮": "r", "发酵": "r", "启动": "y", "冰点": "g", "退潮": "g"}.get(stage, "y")
+    mood = {"高潮": "情绪高潮", "发酵": "发酵中", "启动": "启动期",
+            "冰点": "情绪冰点", "退潮": "退潮期"}.get(stage, "盘面")
+    L = []
+    L.append("涨停 %d 家 / 炸板 %d 家（炸板率 %.0f%%）/ 跌停 %d 家，最高 %d 板。"
+             % (zt_n, zb_n, rate, dt_n, max_lb))
+    if rate >= 50:
+        L.append("炸板率过半，说明接力盘不认，追二板就是送钱；今天只做首板低吸或干脆空仓。")
+    elif rate >= 35:
+        L.append("炸板率偏高，封板不牢，打板要挑 10 点前封死的，其余只看不做。")
+    else:
+        L.append("封板质量尚可，接力有一定成功率，可轻仓参与最强主线。")
+    if dt_n >= 40:
+        L.append("跌停 %d 家、杀跌未止，这类日子任何反弹都是逃命窗口，不要抄底。" % dt_n)
+    elif dt_n >= 15:
+        L.append("跌停 %d 家，局部流动性仍在收缩，控制仓位、别碰低位补跌股。" % dt_n)
+    if tblk:
+        t = tblk[0]
+        L.append("最强主线「%s」：%d 家涨停、%d 只连板、最高 %s、持续 %d 天。"
+                 % (t["name"], t["n"], t.get("cont") or 0, t.get("high") or "-", t.get("days") or 0))
+        if len(tblk) > 1:
+            L.append("次主线：「%s」%d 家、「%s」%d 家。"
+                     % (tblk[1]["name"], tblk[1]["n"],
+                        tblk[2]["name"] if len(tblk) > 2 else "-",
+                        tblk[2]["n"] if len(tblk) > 2 else 0))
+    logic = []
+    for b in tblk[:3]:
+        why = []
+        for s in (b.get("stocks") or [])[:8]:
+            r = (tdet.get(s["c"]) or "").strip()
+            if not r:
+                r = (zt.get(s["c"]) or {}).get("reason") or ""
+            if r:
+                why.append(r[:70])
+            if len(why) >= 2:
+                break
+        logic.append(dict(blk=b["name"], n=b["n"], cont=b.get("cont") or 0,
+                          high=b.get("high") or "", days=b.get("days") or 0,
+                          why=why or ["%d 家涨停、最高 %s" % (b["n"], b.get("high") or "-")],
+                          stocks=(b.get("stocks") or [])[:8]))
+    if not logic:
+        for it in (ind_top or [])[:3]:
+            logic.append(dict(blk=it["name"], n=it["n"], cont=0,
+                              high="%d板" % it["max_lb"], days=0,
+                              why=["%d 家涨停、%d 板高度" % (it["n"], it["max_lb"])],
+                              stocks=(it.get("stocks") or [])[:8]))
+    adv = {"冰点": "冰点期只做首板低吸，不接飞刀；等涨停家数回到 60 家以上再动手。",
+           "启动": "启动期可试仓，优先最强主线的龙一龙二，仓位半仓以内。",
+           "发酵": "发酵期是主升段，龙头二板可打，回踩不破 5 日线就拿着。",
+           "高潮": "高潮期只卖不买，次日冲高兑现，别在最热的时候接最后一棒。",
+           "退潮": "退潮期只做最强、次日必走；破 20 日线的一律清。"}.get(stage, "轻仓试错，等主线确立。")
+    if rotor in ("电风扇", "多点轮动"):
+        adv += " 轮动%s，只做低吸不追涨。" % rotor
+    elif rotor == "混沌无主线":
+        adv += " 今日无主线，空仓等信号。"
+    return dict(mood=mood, tone=tone, lines=L, logic=logic, advice=adv,
+                zt=zt_n, zb=zb_n, dt=dt_n, rate=round(rate, 1), max_lb=max_lb,
+                stage=stage, rotor=rotor)
+
+
 def main():
     uni = universe()
     print("universe %d" % len(uni), flush=True)
@@ -960,7 +1024,8 @@ def main():
         picks.append(dict(name=it["name"], score=sc, level=lv, reasons=rs,
                           zt=n, max_lb=mlb, cat=it["cat"],
                           money=round(chg, 1), streak=streak,
-                          names=it.get("names", [])[:4]))
+                          names=it.get("names", [])[:4],
+                          stocks=(it.get("stocks") or [])[:6]))
     picks.sort(key=lambda x: (-x["score"], -x["zt"]))
     picks = picks[:6]
 
@@ -976,8 +1041,15 @@ def main():
     sent = dict(level="强情绪" if strong else "弱情绪", zt=len(zt), zb=len(zb),
                 dt=len(dtp), zb_rate=round(zb_rate * 100, 1), max_lb=max_lb)
 
+    brief = {}
+    try:
+        brief = build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb)
+    except Exception as e:
+        print("  早盘解读失败 %s" % e, flush=True)
+
     payload = dict(updated=bjnow().strftime("%Y-%m-%d %H:%M:%S"),
                    trade_date=trade_date, universe=len(uni), params={},
+                   brief=brief,
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
