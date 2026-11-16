@@ -62,6 +62,10 @@ tbody tr:active{background:#1c2536}
 a{color:inherit;text-decoration:none}
 .up{color:var(--red)} .down{color:var(--green)}
 .pill{display:inline-block;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600}
+.why{display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  vertical-align:bottom;color:var(--cyan);font-size:12px;cursor:help}
+.note{font-size:12px;color:var(--dim);line-height:1.6;margin:5px 0 9px;padding-left:8px;
+  border-left:2px solid var(--line)}
 .pill.y{background:rgba(245,158,11,.18);color:var(--amber)}
 .pill.r{background:rgba(255,77,94,.18);color:var(--red)}
 .pill.w{background:rgba(230,235,245,.16);color:#fff}
@@ -185,9 +189,10 @@ footer b{color:var(--dim)}
 
 <section class="box" id="sec-ind">
   <div class="box-h" style="flex-wrap:wrap">
-    <h2 style="color:var(--amber)">● 行业催化</h2>
+    <h2 style="color:var(--amber)">● 板块催化</h2>
     <div class="tabs" id="indtabs">
-      <span class="tab on" data-t="ind">行业</span>
+      <span class="tab on" data-t="blk">同花顺板块</span>
+      <span class="tab" data-t="ind">行业</span>
       <span class="tab" data-t="con">概念</span>
       <span class="tab" data-t="wp">字辈</span>
     </div>
@@ -249,10 +254,11 @@ footer b{color:var(--dim)}
 <script src="data.js"></script>
 <script>
 let DATA=null;
-const state={track:'ALL', sort:'score', indSort:'n', indTab:'ind'};
+const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk'};
 const SORTKEY={score:'score', lbc:'lbc', vol_ratio:'vol_ratio', chg:'chg', amt:'amt', cap:'cap', pos:'pos'};
 function link(code){ const p=(code[0]==='6'||code[0]==='9')?'sh':'sz';
   return `https://quote.eastmoney.com/${p}${code}.html`; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 function fmtT(t){ if(!t) return '-'; const s=String(t).padStart(6,'0'); return s.slice(0,2)+':'+s.slice(2,4); }
 
@@ -542,6 +548,66 @@ function renderWordplay(list, sortKey){
   return true;
 }
 
+function renderThsBlk(list, sortKey){
+  const box=document.getElementById('tind'), lvbox=document.getElementById('tlv');
+  if(!box) return false;
+  if(!list||!list.length){
+    box.innerHTML='<div class="empty">今日无同花顺板块数据</div>';
+    lvbox.innerHTML=''; return true;
+  }
+  const VF={n:x=>x.n, cont:x=>x.cont||0, days:x=>x.days||0};
+  const arr=list.slice().sort((a,b)=>{
+    if(sortKey==='name') return String(a.name).localeCompare(String(b.name),'zh');
+    const f=VF[sortKey]||VF.n;
+    return f(b)-f(a);
+  });
+  const maxn=Math.max.apply(null, arr.map(x=>x.n).concat([1]));
+  let h='<table><thead><tr><th>同花顺板块</th><th>涨停</th><th class="hm">连板</th>'+
+        '<th class="hm">最高高度</th><th class="hm">持续</th>'+
+        '<th class="hm" style="text-align:left">代表股</th></tr></thead><tbody>';
+  for(const b of arr){
+    const cls=b.n>=10?'r':(b.n>=5?'y':'');
+    const hi=parseInt(b.high||'0',10)||0;
+    h+=`<tr>
+      <td><b>${b.name}</b></td>
+      <td><span class="pill ${cls}">${b.n}</span></td>
+      <td class="hm">${b.cont||'-'}</td>
+      <td class="hm ${hi>=4?'up':''}">${b.high||'-'}</td>
+      <td class="hm">${b.days?b.days+'天':'-'}</td>
+      <td class="hm" style="text-align:left;color:var(--dim)">${(b.names||[]).slice(0,4).join('、')}</td></tr>`;
+  }
+  box.innerHTML=h+'</tbody></table>';
+
+  const DESC=(DATA&&DATA.ths_desc)||{};
+  const top=arr.slice(0,3);
+  const tot=arr.reduce((s,x)=>s+x.n,0);
+  const cn=document.getElementById('cind');
+  if(cn) cn.textContent=arr.length+' 个板块 · '+tot+' 家涨停';
+  let v='<div style="font-size:12px;color:var(--dim);margin:2px 0 8px">最强主线（同花顺口径）</div>';
+  for(let i=0;i<top.length;i++){
+    const b=top[i];
+    const w=Math.round(100*b.n/maxn);
+    v+=`<div style="margin-bottom:7px">
+      <div style="display:flex;justify-content:space-between;font-size:12px">
+        <span style="color:#e6ebf5">${i+1}. ${b.name}</span>
+        <b style="color:var(--amber)">${b.n}家 · ${b.high||'首板'}</b></div>
+      <div style="height:4px;background:#1b2230;border-radius:2px;margin-top:3px">
+        <i style="display:block;height:4px;width:${w}%;border-radius:2px;background:${
+          b.n>=10?'#ff4d5e':(b.n>=5?'#f59e0b':'#3b82f6')}"></i></div></div>`;
+  }
+  v+='<div style="font-size:12px;color:var(--dim);margin:12px 0 6px">异动解读样本</div>';
+  let shown=0;
+  for(const b of top.slice(0,2)){
+    for(const c of (b.codes||[]).slice(0,1)){
+      const d=DESC[c];
+      if(d){ v+=`<div class="note"><b style="color:#22d3ee">${b.name}</b>：${esc(d.slice(0,100))}…</div>`; shown++; }
+    }
+  }
+  if(!shown) v+='<div class="note">今日无解读文本</div>';
+  lvbox.innerHTML=v;
+  return true;
+}
+
 function renderIndMain(){
   if(!DATA) return;
   const sec=document.getElementById('sec-ind');
@@ -549,15 +615,25 @@ function renderIndMain(){
   const hasInd=!!(DATA.ind_top&&DATA.ind_top.length);
   const hasCon=!!(DATA.concept_top&&DATA.concept_top.length);
   const hasWp=!!(DATA.wordplay&&DATA.wordplay.length);
-  if(!hasInd&&!hasCon&&!hasWp){ sec.style.display='none'; return; }
+  const hasBlk=!!(DATA.ths_blocks&&DATA.ths_blocks.length);
+  if(!hasInd&&!hasCon&&!hasWp&&!hasBlk){ sec.style.display='none'; return; }
   sec.style.display='';
   if(state.indTab==='con'&&!hasCon) state.indTab='ind';
   if(state.indTab==='wp'&&!hasWp) state.indTab='ind';
-  const ORDER={ind:0,con:1,wp:2};
+  if(state.indTab==='blk'&&!hasBlk) state.indTab='ind';
+  const ORDER={blk:0,ind:1,con:2,wp:3};
   const run=(t)=>{
+    if(t==='blk'){
+      sel.innerHTML='<option value="n">按涨停家数</option><option value="cont">按连板数</option>'+
+                    '<option value="days">按持续天数</option><option value="name">按板块名</option>';
+      if(['cont','days','name'].indexOf(state.indSort)<0) state.indSort='n';
+      sel.value=state.indSort;
+      return renderThsBlk(DATA.ths_blocks, state.indSort);
+    }
     if(t==='ind'){
       sel.innerHTML='<option value="n">按涨停家数</option><option value="max_lb">按最高板</option>'+
                     '<option value="cat">按催化等级</option><option value="name">按行业名</option>';
+      if(['n','max_lb','cat','name'].indexOf(state.indSort)<0) state.indSort='n';
       sel.value=state.indSort;
       return renderInd(DATA.ind_top, state.indSort);
     }
@@ -575,7 +651,8 @@ function renderIndMain(){
     return renderWordplay(DATA.wordplay, state.indSort);
   };
   if(!run(state.indTab)){
-    const avail=['ind','con','wp'].filter(t=>t==='ind'?hasInd:(t==='con'?hasCon:hasWp));
+    const avail=['blk','ind','con','wp'].filter(t=>
+      t==='blk'?hasBlk:(t==='ind'?hasInd:(t==='con'?hasCon:hasWp)));
     if(avail.length){ state.indTab=avail[0]; run(state.indTab); }
   }
   const tabs=document.getElementById('indtabs');
@@ -594,7 +671,8 @@ function renderBoom(rows,q){
   const CL={'爆':'y','二爆':'r','二板':'w','加仓':'m','生命线':'c','新低':'b','清仓':'g','横盘突破':'o','炸板':'z'};
   let h='<table><thead><tr><th>代码</th><th>名称</th><th class="hm" style="text-align:left">行业</th>'+
         '<th class="hm">连板</th><th class="hm">现价</th><th>涨跌幅</th>'+
-        '<th style="text-align:left">信号类型</th><th style="text-align:left">催化</th>'+
+        '<th style="text-align:left">信号类型</th><th style="text-align:left">异动解读</th>'+
+        '<th class="hm" style="text-align:left">催化</th>'+
         '<th class="hm">市值</th><th class="hm">位置</th><th class="hm">量比</th><th>距20线</th></tr></thead><tbody>';
   for(const r of rr){
     const pills=r.tags.map(t=>`<span class="pill ${CL[t]||''}">${t}</span>`).join(' ');
@@ -609,7 +687,8 @@ function renderBoom(rows,q){
       <td class="hm">${r.close.toFixed(2)}</td>
       <td class="${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</td>
       <td style="text-align:left">${pills}</td>
-      <td style="text-align:left">${r.cat?`<span class="pill ${ccls}">${r.cat}</span>`:'-'}</td>
+      <td style="text-align:left">${r.reason?`<span class="why" title="${esc(r.desc||r.reason)}">${esc(r.reason)}</span>`:'<span style="color:var(--dim)">-</span>'}</td>
+      <td class="hm" style="text-align:left">${r.cat?`<span class="pill ${ccls}">${r.cat}</span>`:'-'}</td>
       <td class="hm">${r.cap?r.cap.toFixed(0)+'亿':'-'}</td>
       <td class="hm ${r.pos>=70?'up':(r.pos<=30?'down':'')}">${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'}</td>
       <td class="hm">${r.vol_ratio.toFixed(2)}</td>
