@@ -456,7 +456,8 @@ def snapshot(syms):
             try:
                 raw[fl[2]] = dict(px=float(fl[3]), prev=float(fl[4]), op=float(fl[5]),
                                   vol=float(fl[6]), amt=float(fl[37] or 0) * 1e4,
-                                  chg=float(fl[32] or 0))
+                                  chg=float(fl[32] or 0),
+                                  tov=float(fl[38] or 0))   # idx38 = 换手率(%)
             except Exception:
                 continue
 
@@ -503,60 +504,218 @@ def analyse(bars):
     chg = c[t] / c[t - 1] - 1
     chg_p = c[t - 1] / c[t - 2] - 1
     dif = [a - b for a, b in zip(ema(c, 12), ema(c, 26))]
+    dea = ema(dif, 9)
+    bar = dif[t] - dea[t]
+    # VBASE 对齐同花顺 VBASE:=REF(MA(VOL,20),1) —— 不含当日，否则放量日分母抬高、量比偏小
+    def vb_at(i):
+        return Z(vma20, i - 1) if i >= 1 else 0.0
+    vbase = vb_at(t)
+    hsx = v[t] / vbase if vbase > 0 else 99  # 量比 = 当日量 / 前20日均量
 
+    # ---- 板性反推涨停价（v13.4：ST 已 10%，只按涨幅分三档）----
+    cgr = [0.0] * n
+    for i in range(1, n):
+        cgr[i] = c[i] / c[i - 1] - 1
+    mxg = max(cgr[max(1, t - 249):t + 1])
+    lim = 1.30 if mxg > 0.25 else (1.20 if mxg > 0.15 else 1.10)
+    def zt_at(i):
+        return i >= 1 and c[i] >= round(c[i - 1] * lim * 100 + 0.5) / 100 - 0.010
+    ztc = [zt_at(i) for i in range(n)]
+    fb = [i >= 1 and ztc[i] and not ztc[i - 1] for i in range(n)]
+
+    # ---- 一爆（v13.7 放宽到 5% / 1.5 倍）----
     def boom(i):
-        return (c[i] / c[i - 1] - 1) >= 0.06 and v[i] >= Z(vma20, i) * 1.8 and c[i] > Z(m20, i)
-
-    BOOM = boom(t)
+        if i < 1:
+            return False
+        vb = vb_at(i)
+        return (c[i] / c[i - 1] - 1) >= 0.05 and vb > 0 and v[i] >= vb * 1.5 and c[i] > Z(m20, i)
+    BOOM = boom(t) and hsx < 12
     has30 = any(boom(i) for i in range(max(1, t - 29), t + 1))
     has40 = any(boom(i) for i in range(max(1, t - 39), t + 1))
 
+    # ---- 二爆：深洗 / 强洗 ----
     maf = min(Z(m5, t), Z(m10, t), Z(m20, t), Z(m60, t))
     deep = has30 and Z(ll30, t) < maf
     strong = has30 and Z(ll30, t) > Z(m20, t)
     cross5 = c[t] > Z(m5, t) and c[t - 1] <= Z(m5, t - 1)
-    A2 = deep and cross5 and v[t] >= Z(vma20, t) * 1.3
-    B2 = strong and c[t] > Z(hh20, t - 1) and v[t] >= Z(vma20, t) * 1.8 and chg >= 0.04
+    A2 = deep and cross5 and v[t] >= vbase * 1.3
+    B2 = strong and c[t] > Z(hh20, t - 1) and v[t] >= vbase * 1.8 and chg >= 0.04
     hb = dif[t] > 0
-    C2 = chg >= 0.095 and chg_p >= 0.095
+    B2L = (A2 or B2) and hb and not BOOM
+
+    # ---- 二板 / 加仓 ----
+    C2 = chg >= 0.095 and chg_p >= 0.095 and hsx < 8
     DUO = Z(m5, t) > Z(m10, t) > Z(m20, t) > Z(m60, t)
     UPX = Z(m5, t) > Z(m5, t - 1) and Z(m20, t) > Z(m20, t - 1) and Z(m60, t) > Z(m60, t - 1)
-    ADDX = C2 and DUO and UPX
+    ADDX = C2 and DUO and UPX and hsx < 8
+    C2L = C2 and not B2L and not BOOM
+
+    # ---- 生命线起爆 ----
     SHRINK = Z(vma5, t - 1) > 0 and Z(vma60, t) > 0 and Z(vma5, t - 1) < Z(vma60, t) * 0.85
     HOLD = lm[t] is not None and Z(ll20, t) > Z(lm, t) > Z(lm, t - 1)
     LIFE2 = has40 and HOLD and SHRINK and c[t] > Z(hh20, t - 1) and \
-        v[t] >= Z(vma20, t) * 1.8 and chg >= 0.04
+        v[t] >= vbase * 1.8 and chg >= 0.04
+
+    # ---- 清仓 / 新低三档 ----
     CUT = c[t] < Z(m20, t) and c[t - 1] < Z(m20, t - 1) and c[t - 2] < Z(m20, t - 2) and \
         c[t - 3] >= Z(m20, t - 3)
     XL = l[t] <= Z(ll60, t)
+    nlv = vbase > 0 and v[t] >= vbase * 1.5
+    nls = vbase > 0 and v[t] <= vbase * 0.80
+    nlflat = Z(m20, t - 5) > 0 and abs(Z(m20, t) / Z(m20, t - 5) - 1) < 0.015
+    PIT = XL and nlv and chg <= -0.05
+    GRIND = XL and not PIT and nls and bar > (dif[t - 1] - dea[t - 1]) and nlflat
+    NLNX = XL and not PIT and not GRIND
 
-    # 长期横盘后的爆量突破箱体
+    # ---- 横盘突破箱体 ----
     plat_w = 0.0
     if hh60[t - 1] and ll60[t - 1] and ll60[t - 1] > 0:
         plat_w = (hh60[t - 1] - ll60[t - 1]) / ll60[t - 1]
     BOX = (0 < plat_w <= 0.30 and c[t] > Z(hh60, t - 1)
            and v[t] >= Z(vma60, t - 1) * 2.5 and chg >= 0.04)
 
+    # ---- 首板平台突破（v13.2 掩码法）----
+    fbs = [i for i in range(max(1, t - 15), t + 1) if fb[i]]
+    BRK_STR = BRK_MID = P_WEAK = False
+    if fbs:
+        f = fbs[-1]
+        nbf = t - f
+        onefb = len(fbs) == 1
+        WIN = 5 <= nbf <= 15 and onefb
+        seg_h = h[f + 1:t] if t - 1 >= f + 1 else []
+        seg_l = l[f + 1:t] if t - 1 >= f + 1 else []
+        if WIN and seg_h:
+            plat_h, plat_l = max(seg_h), min(seg_l)
+            fbc, fbl = c[f], l[f]
+            p_str = plat_l >= fbc
+            p_mid = plat_l < fbc and plat_l >= fbl
+            P_WEAK = plat_l < fbl and c[t] < fbl
+            shrink_p = Z(vma5, t - 1) > 0 and Z(vma5, t - 1) <= vbase * 0.90
+            if shrink_p and c[t] > plat_h and hsx < 12:
+                if p_str and v[t] >= vbase * 1.5:
+                    BRK_STR = True
+                elif p_mid and v[t] >= vbase * 1.8:
+                    BRK_MID = True
+
+    # ---- 炸板 ----
+    ztj_t = round(c[t - 1] * lim * 100 + 0.5) / 100
+    ZBREAK = h[t] >= ztj_t - 0.010 and c[t] < ztj_t - 0.010
+
+    # ---- 顶部预警（严格版：涨50% 且 站上120日高点90%）----
+    preg = c[t] / Z(ll60, t - 1) if Z(ll60, t - 1) > 0 else 1.0
+    TOPH = preg >= 1.50 and c[t] >= Z(hh120, t) * 0.90
+    bgv = v[t] >= Z(vma20, t - 1) * 2.0 and v[t] >= max(v[max(0, t - 19):t + 1])
+    SHOT = TOPH and bgv and c[t] < o[t] and (o[t] - c[t]) / o[t] >= 0.04 and chg <= -0.03
+    STL = (TOPH and c[t] >= max(c[max(0, t - 59):t + 1]) * 0.97 and chg < 0.015
+           and v[t] >= Z(vma20, t - 1) * 1.5 and (h[t] - c[t]) / c[t] >= 0.02 and h[t] > o[t])
+
+    def last_cross(up, span=90):
+        # 从 t-1 往前找"上一次"交叉；起点若写 t，今天恰好交叉时 t-i==0 会被区间判断排掉
+        for i in range(t - 1, max(1, t - span), -1):
+            a, b = dif[i] - dea[i], dif[i - 1] - dea[i - 1]
+            if up and a > 0 and b <= 0:
+                return i
+            if (not up) and a < 0 and b >= 0:
+                return i
+        return -1
+    dc = last_cross(False)
+    DIVX = (3 < t - dc < 90 and c[t] > c[dc] and dif[t] < dif[dc]
+            and dif[t] < dea[t] and dif[t - 1] >= dea[t - 1] and TOPH)
+    TOPW = SHOT or STL or DIVX
+
+    # ---- 底部介入（低位 + 底背离）----
+    lc120 = roll_ext(c, 120, False)
+    lowp = Z(lc120, t) > 0 and c[t] <= Z(lc120, t) * 1.05
+    drop = Z(hh60, t - 1) > 0 and c[t] / Z(hh60, t - 1) <= 0.80
+    BOTL = lowp and drop
+    gc = last_cross(True)
+    BDIV = 3 < t - gc < 90 and c[t] < c[gc] and dif[t] > dif[gc] and \
+        dif[t] > dea[t] and dif[t - 1] <= dea[t - 1]
+    lmres = lm[t] is not None and lm[t - 1] is not None and lm[t - 5] is not None and \
+        lm[t] > lm[t - 1] and lm[t] > lm[t - 5]
+    BOTS = BDIV and BOTL
+    DIV3 = BOTS and lmres
+    DIV2 = BOTS and v[t] >= vbase * 1.5 and not DIV3
+    DIV1 = BOTS and not DIV3 and not DIV2
+
     tags = []
-    if BOOM: tags.append("爆")
-    if (A2 or B2) and hb: tags.append("二爆")
-    if C2: tags.append("二板")
-    if ADDX: tags.append("加仓")
+    if DIV3: tags.append("底共振")
     if LIFE2: tags.append("生命线")
+    if BRK_STR: tags.append("平台强破")
+    if BRK_MID: tags.append("平台中破")
+    if PIT: tags.append("坑")
     if BOX: tags.append("横盘突破")
-    if XL: tags.append("新低")
-    if CUT: tags.append("清仓")
+    if B2L: tags.append("二爆")
+    if C2L: tags.append("二板")
+    if ADDX: tags.append("加仓")
+    if DIV2: tags.append("底背离")
+    if NLNX: tags.append("新低")
+    if BOOM: tags.append("爆")
+    if P_WEAK: tags.append("弃")
+    if GRIND: tags.append("磨")
+    if ZBREAK: tags.append("炸板")
+    if SHOT: tags.append("清仓")
+    elif STL or DIVX: tags.append("减仓")
+    if CUT: tags.append("破20")
     if not tags:
         return None
-    score = ("爆" in tags) + ("二爆" in tags) * 3 + ("二板" in tags) * 2 + \
-        ("加仓" in tags) * 2 + ("生命线" in tags) * 3 + ("横盘突破" in tags) * 3 - ("清仓" in tags) * 2
+
+    # 权重按回测 20 日胜率：坑 65.0 > 生命线 60.6 > 二爆 > 平台破 > 底共振
+    W = {"底共振": 4, "生命线": 3, "平台强破": 4, "平台中破": 2, "坑": 5, "横盘突破": 3,
+         "二爆": 3, "二板": 2, "加仓": 2, "底背离": 2, "爆": 1,
+         "弃": -2, "磨": -3, "炸板": -1, "清仓": -4, "减仓": -2, "破20": -2}
+    score = sum(W.get(x, 0) for x in tags)
+    # 互斥后的最强买点（复刻 v13.7 的 BUY 链）
+    lead = ""
+    for k in ("底共振", "生命线", "平台强破", "平台中破", "坑", "横盘突破",
+              "二爆", "二板", "加仓", "爆"):
+        if k in tags:
+            lead = k
+            break
     return dict(date=d[t], close=round(c[t], 2), chg=round(chg * 100, 2), tags=tags,
-                score=score, vol_ratio=round(v[t] / Z(vma20, t), 2),
+                lead=lead, score=score, vol_ratio=round(hsx, 2),
                 ma20_gap=round((c[t] / Z(m20, t) - 1) * 100, 2),
                 life_gap=round((c[t] / Z(lm, t) - 1) * 100, 2) if Z(lm, t) else 0.0,
                 amt=round(v[t] * 100 * c[t] / 1e8, 2),
                 pos=round((c[t] - Z(ll120, t)) / (Z(hh120, t) - Z(ll120, t)) * 100, 1)
                 if Z(hh120, t) > Z(ll120, t) else 50.0)
+
+
+def turnover_filter(rows):
+    """用腾讯快照的真实换手率给 boom 行补 hs 并二次过滤。
+
+    为什么需要它：K 线里只有量比，量比受"该股平时有多活跃"影响极大。
+      · 活跃股日均换手 8%，今天换手 15%（已经很热）→ 量比只有 1.9，轻松通过
+      · 冷门股日均换手 2%，今天换手 15%（真启动）→ 量比 7.5，会被 HSX<5 误杀
+    所以量比只能挡"和自己比突然放量"，能不能接要看绝对换手。
+    """
+    if not rows:
+        return rows, 0, 0
+    syms = [_sym(r["code"]) for r in rows]
+    snap = {}
+    try:
+        snap = snapshot(syms)
+    except Exception:
+        pass
+    kept, hot, cold = [], 0, 0
+    for r in rows:
+        q = snap.get(_sym(r["code"])) or {}
+        tov = float(q.get("tov") or 0)
+        r["hs"] = round(tov, 2)
+        tg = r.get("tags") or []
+        # 换手 >30%：天量接力，扣分但保留（妖股也这样，不能一刀切）
+        if tov >= 30:
+            r["score"] = r.get("score", 0) - 2
+            r["hsw"] = "过热"
+            hot += 1
+        elif tov and tov <= 1.5 and ("爆" in tg or "二爆" in tg):
+            # 冷门股放量：量比高但绝对换手低，属于刚被激活，反而优先
+            r["score"] = r.get("score", 0) + 1
+            r["hsw"] = "初动"
+            cold += 1
+        kept.append(r)
+    kept.sort(key=lambda x: (-x.get("score", 0), -x.get("vol_ratio", 0)))
+    return kept, hot, cold
 
 
 def _lb_num(hd):
@@ -1112,6 +1271,24 @@ def main():
             r["track"] = "N"
         tracks[r["track"]] += 1
 
+    # ---------- 真实换手率二次判定（补 hs，过热扣分 / 初动加分）----------
+    try:
+        rows, n_hot, n_cold = turnover_filter(rows)
+        print("换手率校准 过热%d 初动%d" % (n_hot, n_cold), flush=True)
+    except Exception as e:
+        print("换手率校准失败(忽略): %r" % (e,), flush=True)
+        rows.sort(key=lambda x: (-x["score"], -x["vol_ratio"]))
+
+    # ---------- 负面标签不进"起爆信号表" ----------
+    # 磨/弃/破20/减仓/清仓/炸板/新低 这些不是买点，混进买入表会误导
+    BUY_TAG = ("底共振", "生命线", "平台强破", "平台中破", "坑", "横盘突破",
+               "二爆", "二板", "加仓", "底背离", "爆")
+    risk = [r for r in rows if not any(t in BUY_TAG for t in r["tags"])]
+    rows = [r for r in rows if any(t in BUY_TAG for t in r["tags"])]
+    for r in risk:
+        r["track"] = "R"
+    print("买入标签 %d / 风险标签 %d" % (len(rows), len(risk)), flush=True)
+
     rows.sort(key=lambda x: (-x["score"], -x["vol_ratio"]))
     trade_date = max((r["date"] for r in rows), default=bjnow().strftime("%Y-%m-%d"))
 
@@ -1454,7 +1631,7 @@ def main():
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
-                   buy=[], sell=[], boom=rows, history=[], recent=[],
+                   buy=[], sell=[], boom=rows, risk=risk[:300], history=[], recent=[],
                    ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
                    ths_blocks=tblk,
                    ths_zt=[dict(code=k, name=v.get("name", ""), reason=v.get("reason", ""),
@@ -1463,6 +1640,8 @@ def main():
                                 opn=v.get("opn", 0))
                            for k, v in tzt.items()],
                    ths_desc=tdet,
+                   core=[r for r in rows if any(t in r["tags"] for t in
+                         ("底共振", "生命线", "平台强破", "平台中破", "坑"))][:30],
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
