@@ -6,7 +6,7 @@
   python scan_cloud.py --auction  # 采集集合竞价（9:15~9:40）
 输出：docs/data.json / docs/data.js / docs/auction.json
 """
-import os, sys, json, time, re, urllib.request, datetime
+import os, sys, json, time, re, urllib.request, urllib.parse, datetime
 from collections import deque, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -193,6 +193,467 @@ def ths_get(path, date_str, extra=""):
 BLK_BAD_RE = re.compile(r"(预增|预减|扭亏|中报|年报|季报|高送转|送转|摘帽|破净|次新|低价|"
                         r"高股息|红利|融资融券|转债标的|股权激励|员工持股|增持|回购|"
                         r"机构重仓|基金重仓|QFII|社保|险资|参股银行|参股券商|参股保险)")
+
+
+
+# ============================================================
+# 龙虎榜：净买额 / 机构 / 游资 三判
+# 回测 lhb_backtest.txt（21255 条 / 253 个交易日）：
+#   全样本上榜       D1 -0.17% 胜率 45.8%   D20 -4.76%
+#   净买占比 >15%    D1 +3.30% 胜率 65.3%   D20 +1.40%  ← 唯一 D20 还正
+#   净买占比 8-15%   D1 +1.64% 胜率 57.4%
+#   净卖占比 <0%     D1 -1.48% 胜率 38.1%
+#   0家机构 -0.22% / 1家 -0.29% / 2家+ +0.00%  → 机构不加分
+#   净买>15% 且 无机构  D1 +3.93% 胜率 67.9%  D20 +2.66%  ← 最强
+#   净买>8%  且 有机构  D1 +1.57% 胜率 58.6%（弱于无机构的 +2.73%/61.6%）
+#   主力做T          D1 -1.30% 胜率 39.7%  D20 -6.24%  ← 明确回避
+#   买一主买          D1 +1.27% 胜率 53.3%
+#   换手 >20%        D1 -0.71% 胜率 42.4%   D20 -6.57%
+# ============================================================
+LHB_REPORT = "RPT_DAILYBILLBOARD_DETAILSNEW"
+
+
+def _fl(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _org_n(explain):
+    m = re.search(r"(\d+)\s*家机构", explain or "")
+    return int(m.group(1)) if m else 0
+
+
+def _seat_kind(explain):
+    e = explain or ""
+    if "机构" in e:
+        return "机构"
+    if "主力做T" in e:
+        return "主力做T"
+    if "买一主买" in e:
+        return "买一主买"
+    if "普通席位" in e:
+        return "普通席位"
+    return "其他"
+
+
+def _short_why(x):
+    x = x or ""
+    if "换手率" in x:
+        return "高换手"
+    if "跌幅偏离" in x:
+        return "跌幅上榜"
+    if "涨幅偏离" in x:
+        return "涨幅上榜"
+    if "振幅" in x:
+        return "振幅上榜"
+    if "累计达到20%" in x or "累计达到 20%" in x:
+        return "三日累涨20%"
+    return x[:8]
+
+
+
+# ============================================================
+# 游资席位识别
+# 营业部 -> 游资代号；部分代号有公开可查的本人
+# conf: open=公开可查 / folk=圈内流传
+# ============================================================
+HOTMONEY = [
+    # 字段：(代号, 风格, 营业部关键词[], 备注)
+    # 风格：超短隔日 / 三板组 / 撬板王 / 格局王 / 打板客 / 低吸派 / 首板挖掘
+    #       量化通道 / 机构席位 / 北向资金 / 外资券商 / 散户型 / 波段派
+    ("拉萨天团", "散户型",
+     ["东方财富证券股份有限公司拉萨", "东方财富证券股份有限公司山南",
+      "东方财富证券股份有限公司昌都", "东方财富证券股份有限公司林芝",
+      "东方财富证券股份有限公司日喀则", "东方财富证券股份有限公司那曲"],
+     "东财西藏各营业部，散户与量化混合"),
+    ("赵老哥", "超短隔日", ["江苏路证券营业部"], "国泰海通上海江苏路"),
+    ("量化打板", "量化通道", ["浙江互联网分公司"], "国信浙江互联网分公司"),
+    ("机构通道", "机构席位",
+     ["证券股份有限公司总部", "证券股份有限公司上海分公司",
+      "证券股份有限公司北京分公司", "证券股份有限公司深圳分公司"],
+     "券商总部/分公司席位，机构与量化混合"),
+    ("章盟主", "格局王",
+     ["银河证券股份有限公司绍兴", "华鑫证券有限责任公司上海分公司",
+      "华鑫证券有限责任公司上海徐汇区瑞平路"], "浙江绍兴系，偏大市值中线"),
+    ("炒股养家", "格局王",
+     ["华鑫证券有限责任公司上海茅台路", "上海茅台路"], "上海茅台路，中线锁仓"),
+    ("玉兰路", "超短隔日", ["南京玉兰路"], "华泰南京玉兰路"),
+    ("红岭路", "超短隔日", ["深圳红岭中路", "红岭路"], "国泰海通深圳红岭中路"),
+    ("成都系", "三板组",
+     ["成都科华北路", "国金证券股份有限公司成都", "成都天府大道"], "成都系接力"),
+    ("佛山系", "打板客",
+     ["佛山绿景路", "佛山普澜二路", "证券股份有限公司佛山"], "佛山无影脚，打板即走"),
+    ("温州帮", "撬板王",
+     ["证券股份有限公司温州", "温州大南路", "温州车站大道"], "温州系，撬板与对倒"),
+    ("宁波桑田路", "打板客", ["宁波桑田路"], "华鑫宁波桑田路"),
+    ("湖里大道", "超短隔日", ["厦门湖滨南路", "湖里大道"], "华福厦门湖滨南路"),
+    ("思明南路", "低吸派",
+     ["厦门思明南路", "思明南路"], "厦门思明南路一带，回调低吸"),
+    ("欢乐海岸", "格局王", ["益田路荣超商务中心"], "华泰深圳益田路荣超商务中心"),
+    ("大小说家", "超短隔日", ["镇江句容", "句容华阳"], "华泰镇江句容"),
+    ("著名刺客", "打板客", ["华鑫证券有限责任公司宁波分公司"], "华鑫宁波分公司"),
+    ("撬板王", "撬板王", ["北京望京"], "银河北京望京，跌停撬板"),
+    ("葛卫东", "格局王",
+     ["中信证券股份有限公司上海世纪大道", "上海世纪大道"], "上海世纪大道，大资金中线"),
+    ("陈小群", "超短隔日", ["华鑫证券有限责任公司上海宛平南路"], "华鑫上海宛平南路"),
+    ("苏南帮", "三板组",
+     ["证券股份有限公司苏州", "苏州工业园区"], "苏州系，高位接力"),
+    ("浙江帮", "超短隔日",
+     ["证券股份有限公司杭州", "杭州紫阳东路", "杭州庆春路"], "杭州系"),
+    ("广东帮", "低吸派",
+     ["证券股份有限公司广州", "广州天河北路"], "广州系，回调低吸"),
+    ("低位挖掘", "首板挖掘", [], "低位首板型席位，无固定营业部"),
+    ("宁波解放南路", "超短隔日", ["宁波解放南路"], "银河宁波解放南路，老牌超短"),
+    ("深圳华强北", "打板客", ["深圳华强北路", "华强北路"], "华强北系打板"),
+    ("北向", "北向资金", ["深股通专用", "沪股通专用"], "香港中央结算"),
+    ("外资", "外资券商",
+     ["高盛", "瑞银证券", "摩根大通", "摩根士丹利", "野村", "汇丰"], "外资券商席位"),
+    ("机构专用", "机构席位", ["机构专用"], "公募/私募/保险专用席位"),
+]
+
+STYLE_CLS = {
+    "超短隔日": "s1", "三板组": "s2", "撬板王": "s3", "格局王": "s4",
+    "打板客": "s5", "低吸派": "s6", "首板挖掘": "s7", "量化通道": "s8",
+    "机构席位": "s9", "北向资金": "s10", "外资券商": "s11", "散户型": "s12",
+    "波段派": "s13",
+}
+
+
+def _hm_load():
+    """优先读 docs/hotmoney.json，允许用户自己加"""
+    p = os.path.join(DOCS, "hotmoney.json")
+    try:
+        arr = json.load(io.open(p, encoding="utf-8"))
+        out = []
+        for it in arr:
+            out.append((it.get("tag", ""), it.get("style", ""),
+                        it.get("keys") or [], it.get("note", "")))
+        return out or HOTMONEY
+    except Exception:
+        return HOTMONEY
+
+
+_HM = None
+
+
+def hm_match(dept):
+    """营业部全名 -> (tag, style, note) 或 None"""
+    global _HM
+    if _HM is None:
+        _HM = _hm_load()
+    d = dept or ""
+    if not d:
+        return None
+    if "机构专用" in d:
+        return ("机构专用", "机构席位", "公募/私募/保险专用席位")
+    for tag, style, keys, note in _HM:
+        for k in keys:
+            if k and k in d:
+                return (tag, style, note)
+    return None
+
+
+def _dept_short(d):
+    """营业部简称：去掉「证券股份有限公司」「证券营业部」等"""
+    x = d or ""
+    for w in ("证券股份有限公司", "证券有限责任公司", "股份有限公司",
+              "证券营业部", "证券分公司", "有限公司", "证券", "营业部", "分公司"):
+        x = x.replace(w, "")
+    return x.strip()
+
+
+def lhb_seats(date_str, want=("BUY", "SELL")):
+    """返回 {code: dict(buy=[...], sell=[...])}，每条含 dept/short/amt/tag/real/conf"""
+    out = {}
+    for side in want:
+        rep = ("RPT_BILLBOARD_DAILYDETAILSBUY" if side == "BUY"
+               else "RPT_BILLBOARD_DAILYDETAILSSELL")
+        for pg in (1, 2, 3, 4):
+            got = _em_page(rep, "(TRADE_DATE='%s')" % date_str, pg, 500)
+            if not got:
+                break
+            for r in got:
+                code = str(r.get("SECURITY_CODE") or "")
+                if not code or code.startswith(("900", "200")):
+                    continue
+                dept = (r.get("OPERATEDEPT_NAME") or "").strip()
+                amt = _fl(r.get("BUY") if side == "BUY" else r.get("SELL")) / 1e4
+                net = _fl(r.get("NET")) / 1e4
+                m = hm_match(dept)
+                item = dict(dept=dept, short=_dept_short(dept),
+                            amt=round(amt, 0), net=round(net, 0),
+                            tag=m[0] if m else "", style=m[1] if m else "",
+                            note=m[2] if m else "")
+                key = "buy" if side == "BUY" else "sell"
+                d = out.setdefault(code, {"buy": [], "sell": []})
+                d[key].append(item)
+            if len(got) < 500:
+                break
+    return out
+
+
+def _em_page(rep, flt, page, size):
+    q = {"reportName": rep, "columns": "ALL", "pageNumber": str(page),
+         "pageSize": str(size), "source": "WEB", "client": "WEB", "filter": flt}
+    txt = em_get("https://datacenter-web.eastmoney.com/api/data/v1/get?" +
+                 urllib.parse.urlencode(q))
+    if not txt:
+        return []
+    try:
+        j = json.loads(txt)
+    except Exception:
+        return []
+    return (j.get("result") or {}).get("data") or []
+
+
+def lhb_dept_rank(seats, name_map, top=20):
+    """按营业部聚合当日买卖 -> 净买排行（复刻打板客网那张图）"""
+    agg = {}
+    for code, sn in seats.items():
+        nm = name_map.get(code, code)
+        for key in ("buy", "sell"):
+            for it in sn.get(key, []):
+                k = it.get("dept") or ""
+                if not k:
+                    continue
+                a = agg.get(k)
+                if a is None:
+                    a = agg[k] = dict(dept=k, short=it.get("short") or k,
+                                      tag=it.get("tag") or "",
+                                      style=it.get("style") or "",
+                                      buy=0.0, sell=0.0, net=0.0, items=[], _cells={})
+                amt = float(it.get("amt") or 0)
+                if key == "buy":
+                    a["buy"] += amt
+                else:
+                    a["sell"] += amt
+                kk = (code, key)
+                cell = a.setdefault("_cells", {}).get(kk)
+                if cell is None:
+                    a["_cells"][kk] = dict(c=code, n=nm, amt=amt,
+                                           s="买" if key == "buy" else "卖")
+    for a in agg.values():
+        a["net"] = round(a["buy"] - a["sell"])
+        a["buy"] = round(a["buy"])
+        a["sell"] = round(a["sell"])
+        cells = list((a.pop("_cells", None) or {}).values())
+        for c in cells:
+            c["amt"] = round(c["amt"])
+        a["items"] = sorted(cells, key=lambda x: -x["amt"])[:6]
+        a["n"] = len(cells)
+        # 未映射到游资的席位：按交易特征自动归类（每天自动判定，无需维护名单）
+        if not a.get("style"):
+            bc = [c for c in cells if c["s"] == "买"]
+            nb = len(bc)
+            top1 = max((c["amt"] for c in bc), default=0)
+            if a["net"] >= 1e4 and nb >= 3:   # net 单位＝万元，1e4 即 1 亿
+                a["style"] = "疑似分仓"
+            elif a["net"] >= 1e4 and nb <= 2 and a["buy"] > 0 and top1 / a["buy"] >= 0.7:
+                a["style"] = "单票重仓"
+            elif a["net"] <= -1e4 and nb == 0:
+                a["style"] = "单边砸盘"
+    arr = [x for x in agg.values() if x["net"] != 0]
+    arr.sort(key=lambda x: -x["net"])
+    return arr[:top]
+
+
+def lhb_today(date_str):
+    """返回 (rows 全部上榜, top 强信号)，失败返回 ([], [])"""
+    q = {"reportName": LHB_REPORT, "columns": "ALL", "pageNumber": "1",
+         "pageSize": "500", "source": "WEB", "client": "WEB",
+         "filter": "(TRADE_DATE='%s')" % date_str}
+    txt = em_get("https://datacenter-web.eastmoney.com/api/data/v1/get?" +
+                 urllib.parse.urlencode(q))
+    if not txt:
+        return [], []
+    try:
+        j = json.loads(txt)
+    except Exception:
+        return [], []
+    raw = (j.get("result") or {}).get("data") or []
+    # 同一只股票可能因多个原因上榜（涨幅榜+换手榜），按 code 去重
+    # 规则：保留净买占比绝对值最大的一行，上榜原因合并
+    best = {}
+    for r in raw:
+        cc = str(r.get("SECURITY_CODE") or "")
+        if not cc:
+            continue
+        nr = _fl(r.get("DEAL_NET_RATIO"))
+        w = _short_why(r.get("EXPLANATION"))
+        if cc in best:
+            o = best[cc]
+            if abs(nr) > abs(_fl(o.get("DEAL_NET_RATIO"))):
+                o["_why2"] = o.pop("_why2", w)
+                best[cc] = r
+                best[cc]["_why2"] = o.get("_why2")
+            elif w not in (best[cc].get("_why2") or ""):
+                best[cc]["_why2"] = (best[cc].get("_why2") or "") + "/" + w
+        else:
+            best[cc] = r
+    raw = list(best.values())
+
+    rows = []
+    for r in raw:
+        code = str(r.get("SECURITY_CODE") or "")
+        if not code:
+            continue
+        if code.startswith(("900", "200")):   # B 股，成交额畸小会虚高净买占比
+            continue
+        net = _fl(r.get("BILLBOARD_NET_AMT")) / 1e4
+        nrat = _fl(r.get("DEAL_NET_RATIO"))
+        brat = _fl(r.get("DEAL_AMOUNT_RATIO"))
+        hs = _fl(r.get("TURNOVERRATE"))
+        org = _org_n(r.get("EXPLAIN"))
+        seat = _seat_kind(r.get("EXPLAIN"))
+        tags = []
+        if nrat >= 15 and org == 0:
+            tags.append("游资抢筹")
+        elif nrat >= 15:
+            tags.append("龙虎强买")
+        elif nrat >= 8:
+            tags.append("龙虎净买")
+        if org >= 1:
+            tags.append("机构买")
+        if seat == "主力做T":
+            tags.append("主力做T")
+        elif seat == "买一主买":
+            tags.append("买一主买")
+        if nrat < 0:
+            tags.append("龙虎净卖")
+        if hs >= 20:
+            tags.append("高换手")
+        mrate = re.search(r"成功率([\d.]+)%", r.get("EXPLAIN") or "")
+        rows.append(dict(c=code, n=r.get("SECURITY_NAME_ABBR") or "",
+                         chg=round(_fl(r.get("CHANGE_RATE")), 2),
+                         net=round(net, 0), nrat=round(nrat, 2), brat=round(brat, 2),
+                         org=org, seat=seat,
+                         why=(_short_why(r.get("EXPLANATION")) + (r.get("_why2") or "")),
+                         hs=round(hs, 2),
+                         buy=round(_fl(r.get("BILLBOARD_BUY_AMT")) / 1e4, 0),
+                         sell=round(_fl(r.get("BILLBOARD_SELL_AMT")) / 1e4, 0),
+                         rate=float(mrate.group(1)) if mrate else None,
+                         tags=tags))
+    # 合并游资席位（一次拉全市场买卖明细，按 code 分配）
+    try:
+        seats = lhb_seats(date_str)
+    except Exception as e:
+        print("  席位明细失败 %s" % e, flush=True)
+        seats = {}
+    for row in rows:
+        sn = seats.get(row["c"])
+        row["hm"] = []
+        row["hm_seat"] = ""
+        row["hm_style"] = ""
+        row["hm_amt"] = 0
+        row["hm_amts"] = {}
+        row["hm_tag"] = ""
+        if not sn:
+            continue
+        buys = [x for x in sn.get("buy", []) if x.get("tag")]
+        buys.sort(key=lambda x: -x["amt"])
+        tags = []
+        for x in buys:
+            if x["tag"] not in tags:
+                tags.append(x["tag"])
+        row["hm"] = tags[:4]
+        for x in buys:
+            row["hm_amts"][x["tag"]] = row["hm_amts"].get(x["tag"], 0) + x["amt"]
+        if buys:
+            b = buys[0]
+            row["hm_tag"] = b["tag"]
+            row["hm_seat"] = b["short"]
+            row["hm_style"] = b["style"]
+            row["hm_amt"] = b["amt"]
+
+    # 营业部净买排行
+    nmap = {r["c"]: r["n"] for r in rows}
+    try:
+        drank = lhb_dept_rank(seats, nmap, top=24)
+    except Exception:
+        drank = []
+
+    STRONG = ("游资抢筹", "龙虎强买", "龙虎净买")
+    top = [x for x in rows if any(t in x["tags"] for t in STRONG)]
+    top.sort(key=lambda x: -x["nrat"])
+    return rows, top, drank
+
+
+def lhb_latest(dstr=None, back=4):
+    """找最近一个有龙虎榜数据的交易日。
+    龙虎榜在收盘后 18:00 左右才披露 -> 当天 18 点前自动从上一交易日找起。
+    返回 (trade_date, rows, top, dept_rank)"""
+    now = bjnow()
+    if not dstr:
+        dstr = now.strftime("%Y-%m-%d")
+    start = 0
+    if dstr == now.strftime("%Y-%m-%d") and now.hour < 18:
+        start = 1
+    base = datetime.datetime.strptime(dstr, "%Y-%m-%d")
+    for i in range(start, start + back + 1):
+        d = (base - datetime.timedelta(days=i)).strftime("%Y-%m-%d")
+        rows, top, dr = lhb_today(d)
+        if rows:
+            return d, rows, top, dr
+        time.sleep(0.2)
+    return "", [], [], []
+
+
+def do_lhb():
+    """单独跑一次龙虎榜，写 docs/lhb.json（每晚 20:00 由 lhb.yml 触发，约 10 秒）"""
+    out = {}
+    try:
+        trade_date, rows, top, dr = lhb_latest()
+        b = lhb_brief(rows)
+        out = dict(trade_date=trade_date, rows=rows, top=top[:40],
+                   brief=b, dept=dr, n=len(rows),
+                   ts=bjnow().strftime("%Y-%m-%d %H:%M:%S"))
+        print("龙虎榜 %s：上榜 %d 只 / 强信号 %d / 营业部 %d"
+              % (trade_date or "无", len(rows), len(top), len(dr)), flush=True)
+    except Exception as e:
+        print("龙虎榜失败 %s" % e, flush=True)
+        out = dict(trade_date="", rows=[], top=[], brief={}, dept=[], n=0,
+                   ts=bjnow().strftime("%Y-%m-%d %H:%M:%S"), error=str(e))
+    p = os.path.join(DOCS, "lhb.json")
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(json.dumps(out, ensure_ascii=False))
+    print("  写入 %s (%d 字节)" % (p, os.path.getsize(p)), flush=True)
+
+
+def lhb_brief(rows):
+    if not rows:
+        return dict(mood="今日无龙虎榜数据", tone="g", line="", youzi=0, jigou=0,
+                    strong=0, buy=0, sell=0)
+    youzi = sum(1 for x in rows if "游资抢筹" in x["tags"])
+    jigou = sum(1 for x in rows if "机构买" in x["tags"])
+    strong = sum(1 for x in rows if x["nrat"] >= 15)
+    nbuy = sum(1 for x in rows if x["nrat"] > 0)
+    nsell = len(rows) - nbuy
+    if youzi >= 3 and nbuy > nsell:
+        mood, tone = "游资主导 · 资金净流入", "r"
+    elif jigou >= len(rows) * 0.4:
+        mood, tone = "机构接盘为主 · 游资缺位", "y"
+    elif nsell > nbuy:
+        mood, tone = "整体净流出", "g"
+    else:
+        mood, tone = "游资机构分歧", "y"
+    line = ("上榜 %d 只，净买 %d / 净卖 %d；净买占比≥15%% 的 %d 只，"
+            "其中纯游资抢筹 %d 只、含机构 %d 只" % (len(rows), nbuy, nsell, strong, youzi, jigou))
+    # 活跃游资榜（按买入金额）
+    act = {}
+    for r in rows:
+        for t in (r.get("hm") or []):
+            if t in ("机构专用", "北向", "外资", "机构通道"):
+                continue
+            a = act.setdefault(t, dict(tag=t, n=0, amt=0, style=""))
+            a["n"] += 1
+            a["amt"] += (r.get("hm_amts") or {}).get(t, 0)
+            if r.get("hm_tag") == t and r.get("hm_style"):
+                a["style"] = r["hm_style"]
+    hot = sorted(act.values(), key=lambda x: -x["amt"])[:8]
+    return dict(mood=mood, tone=tone, line=line, youzi=youzi, jigou=jigou,
+                strong=strong, buy=nbuy, sell=nsell, hot=hot)
 
 
 def ths_zt_detail(d):
@@ -1619,6 +2080,16 @@ def main():
     except Exception as e:
         print("  早盘解读失败 %s" % e, flush=True)
 
+    lhb_date, lhb_rows, lhb_top, lhb_drank = "", [], [], []
+    lhb_b = {}
+    try:
+        lhb_date, lhb_rows, lhb_top, lhb_drank = lhb_latest(dstr)
+        lhb_b = lhb_brief(lhb_rows)
+        print("  龙虎榜 %d 只（强信号 %d / 游资 %d / 机构 %d）"
+              % (len(lhb_rows), len(lhb_top), lhb_b.get("youzi", 0), lhb_b.get("jigou", 0)), flush=True)
+    except Exception as e:
+        print("  龙虎榜失败 %s" % e, flush=True)
+
     pre = {}
     try:
         pre = premarket()
@@ -1633,7 +2104,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    boom=rows, risk=risk[:300], history=[],
-                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, cycle=cycle, stage=stage, flow=flow, picks=picks, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
                    ths_blocks=tblk,
                    ths_zt=[dict(code=k, name=v.get("name", ""), reason=v.get("reason", ""),
                                 hd=v.get("hd", ""), seal=v.get("seal", 0),
@@ -1646,6 +2117,8 @@ def main():
                          and "ST" not in (r.get("name") or "").upper()][:60],
                    pits=[r for r in rows if "坑" in r["tags"]
                          and "ST" not in (r.get("name") or "").upper()][:80],
+                   lhb=lhb_rows, lhb_top=lhb_top[:40], lhb_brief=lhb_b,
+                   lhb_dept=lhb_drank, lhb_date=lhb_date,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
@@ -1656,5 +2129,7 @@ def main():
 if __name__ == "__main__":
     if "--auction" in sys.argv:
         do_auction(None)
+    elif "--lhb" in sys.argv:
+        do_lhb()
     else:
         main()
