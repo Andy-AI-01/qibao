@@ -155,7 +155,19 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
 .lv-tag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:5px;flex:none}
 .coregrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:10px}
 .corecard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.02)}
-.corecard.hot{border-color:#ff2e63;background:rgba(255,46,99,.07);box-shadow:0 0 0 1px rgba(255,46,99,.25) inset}
+.corecard.hot{border-color:#ff2e63;background:rgba(255,46,99,.045);border-left:3px solid #ff2e63}
+.coregrp{margin-bottom:12px}
+.coregrp:last-child{margin-bottom:0}
+.cg-h{display:flex;align-items:center;gap:8px;margin:0 0 7px;font-size:12px}
+.cg-h b{color:#dbe6f5;font-size:12px}
+.cg-w{color:var(--dim);font-size:11px}
+.cg-more{margin-left:auto;cursor:pointer;color:var(--amber);font-size:11.5px}
+.cg-more:hover{text-decoration:underline}
+.cc-warn{font-size:9.5px;border:1px solid #7a2b3a;color:#ff8899;border-radius:4px;padding:0 4px}
+.corenote{border-left:3px solid var(--amber);background:rgba(245,158,11,.07);color:#d8cba0;
+  font-size:12px;line-height:1.75;padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:11px}
+.corenote.r{border-left-color:#ff2e63;background:rgba(255,46,99,.07);color:#f3b8c4}
+.corenote b{color:#fff}
 .cc-h{display:flex;align-items:center;gap:8px}
 .cc-name{font-size:14px;letter-spacing:.3px}
 .cc-chg{margin-left:auto;font-weight:700;font-size:13px}
@@ -892,39 +904,80 @@ function renderIndMain(){
   if(tabs&&tabs.children) for(const el of tabs.children) el.classList.toggle('on', el.dataset.t===state.indTab);
 }
 
+const COREGRP=[
+  {k:'坑',      cls:'m', w:'新低+放量1.5倍+跌5%，20日+8.05% 胜率65.0%'},
+  {k:'生命线',  cls:'c', w:'缩量整理不破120日线后放量突破，胜率60.6%'},
+  {k:'底共振',  cls:'r', w:'低位+底背离+生命线昂头，胜率60.6%'},
+  {k:'平台强破',cls:'r', w:'首板后5~15日平台整理后放量突破，平台最低不破首板收盘'},
+  {k:'平台中破',cls:'o', w:'首板后平台整理后放量突破（次级）'}
+];
+state.coreOpen={};
+
+function coreCard(r,grp){
+  const isST=/ST/i.test(r.name||'');
+  const zt=(r.chg<=-9.5)?'跌停':(r.chg<=-5?'大跌':'');
+  const hot=grp.k==='坑'&&!isST;
+  return `<div class="corecard${hot?' hot':''}">
+    <div class="cc-h">
+      <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
+      <b class="cc-name">${r.name}</b>
+      <span class="cc-chg ${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</span>
+      <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
+    </div>
+    <div class="cc-tags">${r.tags.map(t=>`<span class="pill ${(COREGRP.find(g=>g.k===t)||{}).cls||''}${t==='坑'?' hot':''}">${t}</span>`).join(' ')}
+      ${zt?`<span class="cc-warn">${zt}</span>`:''}${isST?'<span class="cc-warn">ST</span>':''}</div>
+    <div class="cc-meta">${r.ind||'-'} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'} · 量比${r.vol_ratio.toFixed(2)}${r.hs?' · 换手'+r.hs.toFixed(1)+'%':''}</div>
+    ${r.reason?`<div class="cc-reason why" data-full="${esc(r.desc||r.reason)}" data-nm="${esc(r.name||'')}" title="${esc(r.desc||r.reason)}">${esc(r.reason)}<b class="more">⋯</b></div>`:''}
+  </div>`;
+}
+
 function renderCore(list){
   const box=document.getElementById('tcore');
   const c=document.getElementById('ccore');
   if(!box) return;
-  list=(list||[]).slice().sort((a,b)=>(b.score||0)-(a.score||0));
+  list=(list||[]).slice();
   if(c) c.textContent=list.length? list.length+' 只' : '今日无';
   if(!list.length){
     box.innerHTML='<div class="empty">今天没有稀有信号 —— 一爆/二爆在下面信号表里，那些是观察位不是买点</div>';
     return;
   }
-  const CL={'底共振':'r','生命线':'c','平台强破':'r','平台中破':'o','坑':'m'};
-  const WHY={'坑':'新低+放量1.5倍+跌5%，恐慌出清，20日+8.05% 胜率65.0%',
-             '生命线':'缩量整理不破120日线后放量突破，胜率60.6%',
-             '平台强破':'首板后5~15日平台整理后放量突破，平台最低不破首板收盘',
-             '平台中破':'首板后平台整理后放量突破（次级）',
-             '底共振':'低位+底背离+生命线昂头，胜率60.6%'};
-  let h='<div class="coregrid">';
-  for(const r of list){
-    const best=r.tags.find(t=>WHY[t])||r.lead;
-    h+=`<div class="corecard${best==='坑'?' hot':''}">
-      <div class="cc-h">
-        <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
-        <b class="cc-name">${r.name}</b>
-        <span class="cc-chg ${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</span>
-        <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
-      </div>
-      <div class="cc-tags">${r.tags.map(t=>`<span class="pill ${CL[t]||''}${t==='坑'?' hot':''}">${t}</span>`).join(' ')}</div>
-      <div class="cc-why">${esc(WHY[best]||'')}</div>
-      <div class="cc-meta">${r.ind||'-'} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'} · 量比${r.vol_ratio.toFixed(2)}${r.hs?' · 换手'+r.hs.toFixed(1)+'%':''}</div>
-      ${r.reason?`<div class="cc-reason why" data-full="${esc(r.desc||r.reason)}" data-nm="${esc(r.name||'')}" title="${esc(r.desc||r.reason)}">${esc(r.reason)}<b class="more">⋯</b></div>`:''}
-    </div>`;
+  const temp=(DATA&&DATA.market&&DATA.market.temp)||0;
+  const groups=[];
+  for(const g of COREGRP){
+    const arr=list.filter(r=>r.tags.indexOf(g.k)>=0);
+    if(arr.length) groups.push({g:g, rows:arr});
   }
-  box.innerHTML=h+'</div>';
+  // 没归到任何组的兜底
+  const rest=list.filter(r=>!COREGRP.some(g=>r.tags.indexOf(g.k)>=0));
+  if(rest.length) groups.push({g:{k:'其他',cls:'',w:''},rows:rest});
+
+  let h='';
+  const PITN=(groups.find(x=>x.g.k==='坑')||{rows:[]}).rows.length;
+  if(PITN>0){
+    h+=`<div class="corenote">市场温度 ${temp.toFixed(1)}%。<b>坑不是接飞刀，越恐慌越强</b>：
+      回测 1500 只 / 6501 个坑 —— 全市场均值&lt;-3% 的暴跌日 <b>+11.78%</b> 胜率 <b>76.2%</b> 亏损占比 23.8%；
+      个股跌停附近 <b>+14.78%</b> 胜率 <b>76.5%</b>。反而「跌了但不暴跌」的阴跌日最差（+4.16%/56.5%）。
+      按 <b>次日开盘价</b>进，当天别追。</div>`;
+  }
+  const ztN=(DATA&&DATA.sentiment&&DATA.sentiment.zt)||0;
+  if(PITN>=10){
+    h+=`<div class="corenote r">今日 <b>${PITN}</b> 只「坑」同时触发（全市场涨停 ${ztN} 家）——
+      这不是 ${PITN} 个买点，是<b>一个信号响了 ${PITN} 次</b>，说明今天是集体跌停日。
+      坑的统计优势是批量的，别指望每只都涨：按「跌得最狠 + 换手最大」挑前 3-5 只，其余当观察。</div>`;
+  }
+
+  for(const grp of groups){
+    const k=grp.g.k, arr=grp.rows.slice().sort((x,y)=>(y.score||0)-(x.score||0)||((y.hs||0)-(x.hs||0)));
+    const LIM=6, open=state.coreOpen[k];
+    const show=open?arr:arr.slice(0,LIM);
+    h+=`<div class="coregrp"><div class="cg-h">
+        <span class="pill ${grp.g.cls}${k==='坑'?' hot':''}">${k}</span>
+        <b>${arr.length} 只</b><span class="cg-w">${esc(grp.g.w)}</span>
+        ${arr.length>LIM?`<span class="cg-more" data-ck="${k}">${open?'收起 ▴':('还有 '+(arr.length-LIM)+' 只 ▾')}</span>`:''}
+      </div>
+      <div class="coregrid">${show.map(r=>coreCard(r,grp.g)).join('')}</div></div>`;
+  }
+  box.innerHTML=h;
 }
 
 function renderBoom(rows,q){
@@ -1132,6 +1185,12 @@ function apply(d){
      <span style="color:var(--dim)">${advice}</span>`;
   renderBoom(boom,document.getElementById('qm').value||'');
   renderCore(DATA.core||[]);
+  const tc=document.getElementById('tcore');
+  if(tc) tc.onclick=function(e){
+    const m=e.target.closest('.cg-more'); if(!m) return;
+    const k=m.getAttribute('data-ck'); state.coreOpen[k]=!state.coreOpen[k];
+    renderCore(DATA.core||[]);
+  };
   renderPick(d.picks, d.stage);
   renderCycle(d.cycle, d.stage);
   renderFlow(d.flow);
