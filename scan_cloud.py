@@ -1641,7 +1641,8 @@ def main():
                            for k, v in tzt.items()],
                    ths_desc=tdet,
                    core=[r for r in rows if any(t in r["tags"] for t in
-                         ("底共振", "生命线", "平台强破", "平台中破", "坑"))][:30],
+                         ("底共振", "生命线", "平台强破", "平台中破", "坑"))
+                         and "ST" not in (r.get("name") or "").upper()][:120],
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
     js = json.dumps(payload, ensure_ascii=False)
     open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
