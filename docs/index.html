@@ -17,7 +17,7 @@
   --amber:#f59e0b; --blue:#3b82f6; --cyan:#22d3ee;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--txt);
+body{margin:0;background:var(--bg);color:var(--txt);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;
   font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;font-size:14px;
   -webkit-text-size-adjust:100%;padding-top:env(safe-area-inset-top)}
 .wrap{max-width:1500px;margin:0 auto;padding:16px 14px 50px}
@@ -52,7 +52,7 @@ input[type=search]{background:var(--panel2);border:1px solid var(--line);color:v
 .scroll{max-height:330px;overflow-y:auto;overflow-x:auto;-webkit-overflow-scrolling:touch}
 .scroll.tall{max-height:520px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{padding:8px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid #1c2431}
+th,td{padding:8px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid #1c2431;font-variant-numeric:tabular-nums}
 th{color:var(--dim);font-weight:500;font-size:11.5px;position:sticky;top:0;background:#131924;z-index:3}
 th:first-child,td:first-child{text-align:left;padding-left:14px}
 th:nth-child(2),td:nth-child(2){text-align:left}
@@ -60,7 +60,7 @@ tbody tr:active{background:#1c2536}
 .code{color:var(--dim);font-family:ui-monospace,Consolas,monospace}
 .name{font-weight:600}
 a{color:inherit;text-decoration:none}
-.up{color:var(--red)} .down{color:var(--green)}
+.up{color:#ff6473} .down{color:#2ad48a}
 .pill{display:inline-block;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:600}
 .why{display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   vertical-align:bottom;color:var(--cyan);font-size:12px;cursor:help}
@@ -91,6 +91,7 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   border-radius:8px;padding:6px 8px;font-size:12.5px;outline:none}
 .duo{display:grid;grid-template-columns:minmax(380px,1.6fr) minmax(220px,1fr);gap:12px}
 .duo.half{grid-template-columns:minmax(300px,1fr) minmax(300px,1fr)}
+.duo{align-items:start}
 @media (max-width:900px){ .duo,.duo.half{grid-template-columns:1fr} }
 .pane{overflow-y:auto;-webkit-overflow-scrolling:touch}
 .pane::-webkit-scrollbar{width:6px}
@@ -106,6 +107,12 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
 .whos i{font-style:normal;color:#ff4d5e;margin-left:3px}
 .kw{color:#ff9aa2;background:rgba(255,77,94,.13);border-radius:3px;
   padding:0 2px;font-weight:600;font-style:normal}
+.auempty{min-height:240px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:9px;text-align:center;padding:24px 18px}
+.auempty b{font-size:13.5px;color:#8b98ab;font-weight:600}
+.auempty span{font-size:11.5px;color:#556274;line-height:1.7;max-width:340px}
+.aumeta{font-size:11px;color:#556274;padding:6px 14px 0;letter-spacing:.2px}
+.aumeta i{font-style:normal;color:#7b8aa0}
 .auhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid #2a3547;
   border-radius:10px;padding:8px 12px;margin-bottom:6px;background:rgba(255,255,255,.02)}
 .aulevel{font-size:12.5px;font-weight:700;border:1px solid;border-radius:6px;padding:2px 8px}
@@ -118,17 +125,30 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
 .aunote{font-size:11px;color:#5a6779;margin-top:8px;line-height:1.7}
 #tau{overflow-x:auto}
 #tau table{min-width:520px}
+.lad-more{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;
+  border:1px solid #2f3a4d;background:#1a2230;color:#8b9cb5;font-size:11px;
+  cursor:pointer;user-select:none;white-space:nowrap}
+.lad-more:hover{color:#ffd166;border-color:#5a4a24;background:#221d10}
 .why{cursor:pointer}
 .why .more{color:#ffd166;margin-left:2px;font-weight:700}
 .why:hover{color:#fff}
-#modal{position:fixed;inset:0;background:rgba(0,0,0,.68);display:none;z-index:99;
-  padding:48px 14px;-webkit-overflow-scrolling:touch}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:99}
 #modal.on{display:block}
-#mbox{max-width:700px;margin:0 auto;background:#12161f;border:1px solid #2a3547;
-  border-radius:12px;padding:16px 18px;max-height:72vh;overflow-y:auto}
-#mbox h3{font-size:13.5px;color:#ffd166;margin:0 0 8px}
-#mbox .wt{font-size:12.5px;line-height:1.95;color:#c3cfe0}
-#mbox .x{float:right;cursor:pointer;color:#5a6779;font-weight:700;font-size:16px;line-height:1}
+#mbox{position:fixed;right:0;top:0;height:100%;width:min(560px,92vw);
+  background:#12161f;border-left:1px solid #2a3547;border-radius:0;
+  padding:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  transform:translateX(100%);transition:transform .22s cubic-bezier(.22,.61,.36,1);
+  box-shadow:-24px 0 60px rgba(0,0,0,.55)}
+#modal.on #mbox{transform:none}
+#mbox .mhd{position:sticky;top:0;background:#12161f;border-bottom:1px solid #222b3a;
+  padding:14px 18px 11px;display:flex;align-items:center;gap:10px;z-index:2}
+#mbox h3{font-size:13.5px;color:#ffd166;margin:0;flex:1;line-height:1.4}
+#mbox .wt{font-size:12.5px;line-height:1.95;color:#c3cfe0;padding:14px 18px 24px}
+#mbox .x{cursor:pointer;color:#5a6779;font-weight:700;font-size:15px;line-height:1;
+  padding:4px 6px;border-radius:6px;flex:none}
+#mbox .x:hover{color:#fff;background:#1d2634}
+#mbox .wtip{font-size:10.5px;color:#4a5568;padding:0 18px 16px;line-height:1.7}
+@media (max-width:760px){ #mbox{width:100vw} }
 .lv-row{display:flex;align-items:center;gap:9px;padding:10px 0;border-bottom:1px solid #1c2431}
 .lv-row:last-child{border-bottom:0}
 .lv-num{font-size:20px;font-weight:700;min-width:40px;text-align:right;line-height:1}
@@ -223,8 +243,8 @@ footer b{color:var(--dim)}
     <span class="cnt" id="cladder">--</span>
     <span class="sp"></span>
     <h2 style="color:var(--cyan)">● 集合竞价三判</h2>
-    <span class="cnt" id="cau">--</span>
-    <span class="cnt" id="autime">9:25 自动采集</span>
+    <span class="cnt" id="cau">待采集</span>
+    <span class="cnt" id="autime">9:25 自动</span>
   </div>
   <div class="duo half">
     <div id="tladder" class="pane" style="padding:10px 14px 14px;max-height:640px"></div>
@@ -287,7 +307,11 @@ footer b{color:var(--dim)}
   <div class="bars-x" id="barsx"></div>
 </section>
 
-<div id="modal"><div id="mbox"><span class="x" id="mclose">✕</span><h3 id="mtt"></h3><div class="wt" id="mbody"></div></div></div>
+<div id="modal"><div id="mbox">
+  <div class="mhd"><h3 id="mtt"></h3><span class="x" id="mclose">✕</span></div>
+  <div class="wt" id="mbody"></div>
+  <div class="wtip">Esc 或点左侧空白处关闭</div>
+</div></div>
 <footer>
 <b>信号</b>：黄▲一爆（涨≥6%＋1.8倍量＋站上20线）｜红▲二爆（深洗后放量收复5日线，或强洗不破20线后放量破前高，且 MACD 零轴上）｜白▲二板｜◆加仓（连板＋均线多头发散）｜青★生命线（缩量整理不破120日线后放量突破）｜橙「横盘突破」（60日振幅≤30%后爆量破箱顶）｜灰「炸板」（触板未封住，扣分）｜绿▼清仓（破20日线3日未收回）｜蓝▲新低（60日新低）。<br>
 <b>三档</b>：趋势档＝市值≥104亿 且 120日位置≥70%｜妖股档＝市值≤50亿、股价≤10元、位置≤30%｜其余归「其他」。位置＝(收盘−120日最低)÷(120日最高−120日最低)。<br>
@@ -300,7 +324,7 @@ footer b{color:var(--dim)}
 <script src="data.js"></script>
 <script>
 let DATA=null;
-const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}};
+const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}, ladOpen:{}};
 const EXPDATA={};
 function stockTable(stocks){
   if(!stocks||!stocks.length) return '<div style="padding:8px 12px;color:#5a6779;font-size:12px">今日无个股明细</div>';
@@ -567,10 +591,17 @@ function renderLadder(L, leaders){
         ? `<a href="${link(z.code)}" target="_blank" class="name" style="color:#ffd166;font-weight:700">★${z.name}</a>`
         : `<a href="${link(z.code)}" target="_blank" class="name">${z.name}</a>`;
       return `<span style="display:inline-block;white-space:nowrap">${nm}${detail}</span>`;
-    }).join('');
+    });
+    const LIM = (k==='1' ? (window.innerWidth<760?8:14) : 12);
+    const open = !!(state.ladOpen&&state.ladOpen[k]);
+    const shown = (arr.length>LIM && !open) ? items.slice(0,LIM) : items;
+    void 0;
+    const rest = arr.length>LIM ? (open
+      ? `<span class="lad-more" data-lk="${k}">收起 ▴</span>`
+      : `<span class="lad-more" data-lk="${k}">+${arr.length-LIM} 只 ▾</span>`) : '';
     h+=`<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid #1c2431;align-items:flex-start">
       <span class="pill ${cls}" style="min-width:66px;text-align:center;flex:none">${label} ${arr.length}</span>
-      <span style="flex:1;line-height:2">${arr.length?items:'<span style="color:#4a5568">—</span>'}</span></div>`;
+      <span style="flex:1;line-height:2">${arr.length?shown.join(''):'<span style="color:#4a5568">—</span>'}${rest}</span></div>`;
   }
   box.innerHTML=h;
   document.getElementById('cladder').textContent='今日涨停 '+total+' 家'+(leaders&&leaders.length?(' · 龙头 '+leaders.length+' 只'):'');
@@ -875,19 +906,32 @@ function renderBoom(rows,q){
   box.innerHTML=h+'</tbody></table>';
 }
 
+function auHuman(m){
+  if(!m) return '暂无竞价数据';
+  if(m.indexOf('未取到昨日涨停池')>=0) return '昨日涨停池暂不可用';
+  if(m.indexOf('竞价快照为空')>=0) return '竞价快照为空';
+  if(m.indexOf('非竞价时段')>=0) return '非竞价时段';
+  return m;
+}
+
 function renderAuction(a){
   const box=document.getElementById('tau');
   const tEl=document.getElementById('autime');
   const setc=(v)=>{ const e=document.getElementById('cau'); if(e) e.textContent=v; };
-  if(!a){ box.innerHTML='<div class="empty">暂无竞价数据'+
-      '<br><span style="font-size:11.5px;color:#5a6779">每个交易日 9:25 自动采集一次；'+
-      '采集后这里显示空间龙量价 / 梯队晋级 / 资金认可三判</span></div>'; setc('--'); return; }
-  tEl.textContent=(a.date||'')+' '+(a.time||'')+(a.valid?' 竞价已采集':' · '+(a.message||'非竞价时段'));
+  const EMPTY='<div class="auempty"><b>尚未采集今日竞价</b>'+
+      '<span>每个交易日 9:25 自动采集一次；采集后这里显示<br>空间龙量价 · 梯队晋级 · 资金认可 三判</span></div>';
+  if(!a){ box.innerHTML=EMPTY; setc('待采集'); if(tEl) tEl.textContent='9:25 自动'; return; }
   const v=a.verdict, IT=a.items||[];
-  setc(v?(v.level+' '+v.score+'/'+(v.max||8)):(IT.length?IT.length+' 只':'--'));
+  setc(v?(v.level+' '+v.score+'/'+(v.max||8)):(IT.length?IT.length+' 只':'待采集'));
+  if(tEl) tEl.textContent=a.valid?('已采 '+(a.time||'').slice(0,5)):'9:25 自动';
+  const meta='<div class="aumeta">'+(a.date||'')+' '+(a.time||'')+
+    (a.message?(' · <i>'+esc(a.message)+'</i>'):'')+
+    (a.src?(' · <i>源:'+esc(a.src)+'</i>'):'')+
+    (a.prev_snapshot?(' · <i>基准日 '+esc(a.prev_snapshot)+'</i>'):'')+'</div>';
   if(!IT.length){
-    box.innerHTML='<div class="empty">'+(a.message||'今日竞价无数据')+
-      '<br><span style="font-size:11.5px;color:#5a6779">每个交易日 9:25 自动采集一次</span></div>';
+    box.innerHTML=meta+'<div class="auempty"><b>'+auHuman(a.message)+'</b>'+
+      '<span>'+(a.src?('数据源：'+esc(a.src)+'<br>'):'')+
+      '每个交易日 9:25 自动采集；下一交易日重试</span></div>';
     return;
   }
   const pick=(p,ar)=>{
@@ -896,7 +940,7 @@ function renderAuction(a){
     if(p>=0) return ['平开','z'];
     return ['转弱','g'];
   };
-  let h='';
+  let h=meta;
   if(v){
     const col=v.cls==='r'?'#ff4d5e':(v.cls==='y'?'#ffc451':'#22c98a');
     h+=`<div class="auhead" style="border-color:${col}33">
@@ -1104,7 +1148,9 @@ document.getElementById('tflow').addEventListener('click',e=>{
 document.addEventListener('click',e=>{
   const w=e.target.closest('.why[data-full]');
   if(w){
-    document.getElementById('mtt').textContent=(w.dataset.nm||'')+(w.dataset.nm?' · 异动解读':'异动解读');
+    const mt=document.getElementById('mtt');
+    mt.dataset.cur=w.dataset.nm||'';
+    mt.textContent=(w.dataset.nm||'')+(w.dataset.nm?' · 异动解读':'异动解读');
     document.getElementById('mbody').innerHTML=hlText(w.dataset.full||'');
     document.getElementById('modal').classList.add('on');
     return;
@@ -1112,6 +1158,29 @@ document.addEventListener('click',e=>{
   if(e.target.id==='mclose'||e.target.id==='modal'){
     document.getElementById('modal').classList.remove('on');
   }
+  const lm=e.target.closest('.lad-more[data-lk]');
+  if(lm){
+    const k=lm.dataset.lk;
+    state.ladOpen=state.ladOpen||{};
+    state.ladOpen[k]=!state.ladOpen[k];
+    renderLadder((DATA||{}).ladder,(DATA||{}).leaders);
+  }
+});
+document.addEventListener('keydown',e=>{
+  const m=document.getElementById('modal');
+  if(e.key==='Escape'){ if(m) m.classList.remove('on'); return; }
+  if(!m||!m.classList.contains('on')) return;
+  if(e.key!=='ArrowUp'&&e.key!=='ArrowDown') return;
+  const all=Array.from(document.querySelectorAll('.why[data-full]'));
+  if(!all.length) return;
+  const cur=document.getElementById('mtt').dataset.cur||'';
+  let i=all.findIndex(el=>(el.dataset.nm||'')===cur);
+  if(i<0) i=0;
+  i+=(e.key==='ArrowDown'?1:-1);
+  if(i<0) i=all.length-1;
+  if(i>=all.length) i=0;
+  e.preventDefault();
+  all[i].click();
 });
 
 /* 早盘解读：盘前/盘中 切换 */
