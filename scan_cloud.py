@@ -13,10 +13,11 @@ from concurrent.futures import ThreadPoolExecutor
 BASE = os.path.dirname(os.path.abspath(__file__))
 DOCS = os.path.join(BASE, "docs")
 os.makedirs(DOCS, exist_ok=True)
-HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
        "Connection": "close", "Referer": "https://finance.sina.com.cn/"}
 BARS = 200
-WORKERS = 32
+WORKERS = 16
 
 
 def get(url, enc="utf-8", tries=2):
@@ -25,7 +26,7 @@ def get(url, enc="utf-8", tries=2):
             return urllib.request.urlopen(
                 urllib.request.Request(url, headers=HDR), timeout=25).read().decode(enc, "ignore")
         except Exception:
-            time.sleep(0.3 * (i + 1))
+            time.sleep(0.5 * (i + 1))
     return None
 
 
@@ -1626,13 +1627,13 @@ def main():
         print("  盘前解读失败 %s" % e, flush=True)
 
     payload = dict(updated=bjnow().strftime("%Y-%m-%d %H:%M:%S"),
-                   trade_date=trade_date, universe=len(uni), params={},
+                   trade_date=trade_date, universe=len(uni),
                    brief=brief, pre=pre,
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
-                   buy=[], sell=[], boom=rows, risk=risk[:300], history=[], recent=[],
-                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, stage_note=stage, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
+                   boom=rows, risk=risk[:300], history=[],
+                   ladder=ladder, leaders=leaders, tracks=tracks, cycle=cycle, stage=stage, flow=flow, picks=picks, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
                    ths_blocks=tblk,
                    ths_zt=[dict(code=k, name=v.get("name", ""), reason=v.get("reason", ""),
                                 hd=v.get("hd", ""), seal=v.get("seal", 0),
