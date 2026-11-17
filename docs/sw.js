@@ -4,7 +4,7 @@
    后台再更新 —— 你传了新文件，手机上看到的还是上一版，就以为是没生效。
    data.js 同理，它是 window.__DATA__ 的来源，走 SW 缓存会一直慢一版。 */
 
-const VER        = 'v4';
+const VER        = 'v5';
 const STATIC_CACHE = 'qibao-static-' + VER;  // index.html / manifest / 图标
 const DATA_CACHE   = 'qibao-data-' + VER;    // data.json / auction.json
 
@@ -88,7 +88,7 @@ self.addEventListener('fetch', e => {
   const p = url.pathname;
 
   // 1) 动态数据：永远先问网络（有 12s 保护），断了才吃缓存
-  if (p.endsWith('/data.json') || p.endsWith('/auction.json')) {
+  if (p.endsWith('/data.json') || p.endsWith('/lhb.json') || p.endsWith('/auction.json')) {
     e.respondWith(networkFirst(req, DATA_CACHE, 12000));
     return;
   }
