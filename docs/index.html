@@ -202,6 +202,11 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   background:rgba(255,255,255,.06);border-radius:4px;padding:0 4px}
 .nv.on b{color:#141a24;background:var(--amber)}
 section[data-nv].nvoff{display:none!important}
+.morewrap{padding:12px;text-align:center;border-top:1px solid var(--line)}
+.morebtn{display:inline-block;padding:7px 18px;border:1px solid var(--line);border-radius:18px;
+  color:var(--amber);font-size:12.5px;cursor:pointer;background:rgba(255,176,32,.06)}
+.morebtn:hover{background:rgba(255,176,32,.14);border-color:var(--amber)}
+.morehint{display:block;margin-top:7px;font-size:11px;color:var(--dim)}
 .empty{padding:26px 16px;text-align:center;color:var(--dim);font-size:12.5px;line-height:1.9}
 .bars{display:flex;align-items:flex-end;gap:3px;height:70px;padding:12px 14px 0}
 .bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
@@ -364,6 +369,7 @@ footer b{color:var(--dim)}
     <input type="search" id="qm" placeholder="筛选代码/名称">
   </div>
   <div class="scroll tall" id="tboom-wrapper"><div id="tboom"></div></div>
+  <div id="tmore"></div>
 </section>
 
 
@@ -401,7 +407,7 @@ footer b{color:var(--dim)}
 <script src="data.js"></script>
 <script>
 let DATA=null;
-const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}, ladOpen:{}};
+const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}, ladOpen:{}, boomLimit:100};
 const EXPDATA={};
 function stockTable(stocks){
   if(!stocks||!stocks.length) return '<div style="padding:8px 12px;color:#5a6779;font-size:12px">今日无个股明细</div>';
@@ -986,11 +992,23 @@ function applyNav(v,quiet){
     on.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'});
   }
   try{ localStorage.setItem(NVKEY,v); }catch(e){}
+  try{
+    if(history.replaceState){
+      const u=location.pathname+location.search+(v==='core'?'':'#'+v);
+      history.replaceState(null,'',u);
+    }
+  }catch(e){}
 }
+const NVSET=['core','ladder','ind','flow','pit','boom','all'];
 function initNav(){
   const nav=document.getElementById('topNav'); if(!nav) return;
-  let v='core';
-  try{ const k=localStorage.getItem(NVKEY); if(k) v=k; }catch(e){}
+  // 优先级：URL hash（manifest 快捷方式 ./index.html#pit）> localStorage > core
+  let v='';
+  try{ v=(location.hash||'').replace(/^#/,''); }catch(e){}
+  if(NVSET.indexOf(v)<0){
+    v='core';
+    try{ const k=localStorage.getItem(NVKEY); if(k && NVSET.indexOf(k)>=0) v=k; }catch(e){}
+  }
   applyNav(v,true);
   nav.addEventListener('click',e=>{
     const it=e.target.closest('.nv'); if(!it) return;
@@ -1096,7 +1114,9 @@ function renderBoom(rows,q){
     const va=a[SORTKEY[state.sort]]||0, vb=b[SORTKEY[state.sort]]||0;
     return vb-va;
   });
-  if(!rr.length){ box.innerHTML='<div class="empty">本档今日无信号</div>'; return; }
+  if(!rr.length){ box.innerHTML='<div class="empty">本档今日无信号</div>';
+    const m0=document.getElementById('tmore'); if(m0){ m0.innerHTML=''; m0.className=''; }
+    return; }
   const CL={'爆':'y','二爆':'r','二板':'w','加仓':'m','生命线':'c','新低':'b','清仓':'g',
     '横盘突破':'o','炸板':'z','底共振':'r','底背离':'y','平台强破':'r','平台中破':'o',
     '坑':'m','磨':'g','弃':'g','减仓':'g','破20':'g'};
@@ -1105,7 +1125,11 @@ function renderBoom(rows,q){
         '<th style="text-align:left">信号类型</th><th style="text-align:left">异动解读</th>'+
         '<th class="hm" style="text-align:left">催化</th>'+
         '<th class="hm">市值</th><th class="hm">位置</th><th class="hm">量比</th><th class="hm">换手</th><th>距20线</th></tr></thead><tbody>';
-  for(const r of rr){
+  
+  const LIMIT = state.boomLimit||100;
+  const displayRows = rr.slice(0, LIMIT);
+
+  for(const r of displayRows){
     const pills=r.tags.map(t=>`<span class="pill ${CL[t]||''}${t==='坑'?' hot':''}">${t}</span>`).join(' ');
     const ccls=r.cat==='强催化'?'r':(r.cat==='中催化'?'y':'');
     const tr = r.track==='T'? '<span class="pill r" title="大市值高位·趋势档">趋</span>'
@@ -1128,6 +1152,19 @@ function renderBoom(rows,q){
       <td class="${r.ma20_gap>0?'up':'down'}">${r.ma20_gap>0?'+':''}${r.ma20_gap.toFixed(2)}%</td></tr>`;
   }
   box.innerHTML=h+'</tbody></table>';
+  const more=document.getElementById('tmore');
+  if(!more) return;
+  if(rr.length>LIMIT){
+    more.innerHTML=`<span class="morebtn" id="boom-more">加载更多（还有 ${rr.length-LIMIT} 条）</span>
+      <span class="morehint">共 ${rr.length} 条 · 已显示 ${LIMIT} · 也可用搜索框精确定位</span>`;
+    more.className='morewrap';
+    more.querySelector('#boom-more').onclick=()=>{
+      state.boomLimit=LIMIT+100;
+      renderBoom(DATA.boom||[],document.getElementById('qm').value||'');
+    };
+  }else{
+    more.innerHTML=''; more.className='';
+  }
 }
 
 function auHuman(m){
@@ -1254,7 +1291,7 @@ function apply(d){
     errEl.style.background='rgba(255,77,94,.12)';
     errEl.style.borderColor='rgba(255,77,94,.5)';
     errEl.style.color='#ff8b96';
-    errEl.textContent='⚠ '+d.error;
+    errEl.textContent='⚠ '+d.error+((d.fetch_total)?('（成功 '+(d.fetch_ok||0)+'/'+d.fetch_total+'）'):'');
   }else if(errEl.textContent.indexOf('⚠')===0){
     errEl.style.display='none';
   }
@@ -1298,7 +1335,13 @@ function apply(d){
   setnv('nv-core',(DATA.core||[]).length);
   setnv('nv-pit',(DATA.pits||[]).length);
   setnv('nv-boom',(DATA.boom||[]).length);
-  setnv('nv-ladder',((DATA.leaders||[]).length)+((DATA.ladder&&DATA.ladder['1']||[]).length));
+  
+  // 修复：连板梯队计数需要统计所有层级
+  const ladderCount = ['1','2','3','4+'].reduce((sum, k) => 
+      sum + ((DATA.ladder && DATA.ladder[k]) ? DATA.ladder[k].length : 0), 0
+  );
+  setnv('nv-ladder', ladderCount);
+  
   setnv('nv-ind',(DATA.ths_blocks||[]).length);
   const tc=document.getElementById('tcore');
   if(tc) tc.onclick=function(e){
@@ -1316,8 +1359,13 @@ function apply(d){
 }
 
 async function loadData(){
+  // 修复：引入超时控制器，防止弱网下一直卡在加载中
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  
   try{
-    const r=await fetch('./data.json?t='+Date.now(),{cache:'no-store'});
+    const r=await fetch('./data.json?t='+Date.now(),{cache:'no-store', signal: controller.signal});
+    clearTimeout(timeoutId);
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d=await r.json();
     if(!DATA||d.updated!==DATA.updated){
@@ -1327,6 +1375,7 @@ async function loadData(){
     }
     if(!d.error) document.getElementById('err').style.display='none';
   }catch(e){
+    clearTimeout(timeoutId);
     if(window.__DATA__){
       if(!DATA) apply(window.__DATA__);
       const el=document.getElementById('err');
@@ -1342,27 +1391,32 @@ async function loadData(){
 async function loadAuction(){
   const box=document.getElementById('tau');
   const show=(on)=>{ if(box) box.style.display=on?'':'none'; };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  
   try{
-    const r=await fetch('./auction.json?t='+Date.now(),{cache:'no-store'});
+    const r=await fetch('./auction.json?t='+Date.now(),{cache:'no-store', signal: controller.signal});
+    clearTimeout(timeoutId);
     if(r.ok){ renderAuction(await r.json()); show(true); }
     else { renderAuction(null); show(true); }
   }catch(e){
+    clearTimeout(timeoutId);
     if(window.__AUCTION__){ renderAuction(window.__AUCTION__); show(true); }
     else { renderAuction(null); show(true); }
   }
 }
 document.getElementById('qm').addEventListener('input',e=>{
-  if(DATA) renderBoom(DATA.boom||[],e.target.value);
+  if(DATA){ state.boomLimit=100; renderBoom(DATA.boom||[],e.target.value); }
 });
 document.getElementById('tabs').addEventListener('click',e=>{
   const t=e.target.closest('.tab'); if(!t) return;
   state.track=t.dataset.t;
   document.querySelectorAll('#tabs .tab').forEach(x=>x.classList.toggle('on',x===t));
-  if(DATA) renderBoom(DATA.boom||[],document.getElementById('qm').value||'');
+  if(DATA){ state.boomLimit=100; renderBoom(DATA.boom||[],document.getElementById('qm').value||''); }
 });
 document.getElementById('sortby').addEventListener('change',e=>{
   state.sort=e.target.value;
-  if(DATA) renderBoom(DATA.boom||[],document.getElementById('qm').value||'');
+  if(DATA){ state.boomLimit=100; renderBoom(DATA.boom||[],document.getElementById('qm').value||''); }
 });
 document.getElementById('indtabs').addEventListener('click',e=>{
   const t=e.target.closest('.tab'); if(!t) return;
