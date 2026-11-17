@@ -260,6 +260,17 @@ def _short_why(x):
 # conf: open=公开可查 / folk=圈内流传
 # ============================================================
 HOTMONEY = [
+    # ---- 具体席位必须放在笼统的"证券股份有限公司××"之前，否则会被吃掉 ----
+    ("紫阳东路", "超短隔日", ["武汉紫阳东路"], "武汉帮代表席位（在武汉，不在杭州）"),
+    ("知春路", "超短隔日", ["北京知春路"], "北京游资席位，偏超短"),
+    ("溧阳路", "超短隔日", ["上海溧阳路"], "老牌超短席位"),
+    ("金田路", "打板客", ["深圳金田路"], "深圳游资，打板为主"),
+    ("上塘路", "超短隔日", ["杭州上塘路"], "杭州游资，一日游为主"),
+    ("太平南路", "超短隔日", ["南京太平南路"], "南京游资席位"),
+    ("北一环", "三板组", ["成都北一环"], "成都三板接力"),
+    ("清扬路", "超短隔日", ["无锡清扬路"], "无锡游资"),
+    ("五四路", "低吸派", ["福州五四路"], "福州游资，偏低吸"),
+    ("花园石桥路", "外资券商", ["花园石桥路"], "瑞银老席位"),
     # 字段：(代号, 风格, 营业部关键词[], 备注)
     # 风格：超短隔日 / 三板组 / 撬板王 / 格局王 / 打板客 / 低吸派 / 首板挖掘
     #       量化通道 / 机构席位 / 北向资金 / 外资券商 / 散户型 / 波段派
@@ -297,11 +308,11 @@ HOTMONEY = [
     ("撬板王", "撬板王", ["北京望京"], "银河北京望京，跌停撬板"),
     ("葛卫东", "格局王",
      ["中信证券股份有限公司上海世纪大道", "上海世纪大道"], "上海世纪大道，大资金中线"),
-    ("陈小群", "超短隔日", ["华鑫证券有限责任公司上海宛平南路"], "华鑫上海宛平南路"),
+    ("陈小群", "超短隔日", ["宛平南路"], "华鑫上海宛平南路"),
     ("苏南帮", "三板组",
      ["证券股份有限公司苏州", "苏州工业园区"], "苏州系，高位接力"),
     ("浙江帮", "超短隔日",
-     ["证券股份有限公司杭州", "杭州紫阳东路", "杭州庆春路"], "杭州系"),
+     ["证券股份有限公司杭州", "杭州庆春路"], "杭州系"),
     ("广东帮", "低吸派",
      ["证券股份有限公司广州", "广州天河北路"], "广州系，回调低吸"),
     ("低位挖掘", "首板挖掘", [], "低位首板型席位，无固定营业部"),
@@ -461,6 +472,7 @@ def lhb_dept_rank(seats, name_map, top=20):
 
 def lhb_today(date_str):
     """返回 (rows 全部上榜, top 强信号)，失败返回 ([], [])"""
+    date_str = _norm_date(date_str)
     q = {"reportName": LHB_REPORT, "columns": "ALL", "pageNumber": "1",
          "pageSize": "500", "source": "WEB", "client": "WEB",
          "filter": "(TRADE_DATE='%s')" % date_str}
@@ -580,13 +592,23 @@ def lhb_today(date_str):
     return rows, top, drank
 
 
+def _norm_date(d):
+    """把 20261117 / 2026-11-17 / 2026/11/17 统一成 2026-11-17"""
+    d = (d or "").strip()
+    for f in ("%Y-%m-%d", "%Y%m%d", "%Y/%m/%d"):
+        try:
+            return datetime.datetime.strptime(d, f).strftime("%Y-%m-%d")
+        except Exception:
+            continue
+    return bjnow().strftime("%Y-%m-%d")
+
+
 def lhb_latest(dstr=None, back=4):
     """找最近一个有龙虎榜数据的交易日。
     龙虎榜在收盘后 18:00 左右才披露 -> 当天 18 点前自动从上一交易日找起。
     返回 (trade_date, rows, top, dept_rank)"""
     now = bjnow()
-    if not dstr:
-        dstr = now.strftime("%Y-%m-%d")
+    dstr = _norm_date(dstr) if dstr else now.strftime("%Y-%m-%d")
     start = 0
     if dstr == now.strftime("%Y-%m-%d") and now.hour < 18:
         start = 1
@@ -2132,4 +2154,10 @@ if __name__ == "__main__":
     elif "--lhb" in sys.argv:
         do_lhb()
     else:
-        main()
+        try:
+            main()
+        except Exception:
+            import traceback
+            print("!!!!! scan_cloud 主流程崩溃，完整 traceback 如下 !!!!!", flush=True)
+            traceback.print_exc()
+            sys.exit(1)
