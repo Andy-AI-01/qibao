@@ -168,6 +168,15 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   font-size:12px;line-height:1.75;padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:11px}
 .corenote.r{border-left-color:#ff2e63;background:rgba(255,46,99,.07);color:#f3b8c4}
 .corenote b{color:#fff}
+.pitcard{border:1px solid #3a2530;border-left:3px solid #ff2e63;border-radius:10px;
+  padding:9px 11px;background:rgba(255,46,99,.035)}
+.pitstat{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11.5px;color:#8fa8c8;
+  border-left:3px solid var(--line);padding:8px 12px;margin-bottom:10px;line-height:1.7}
+.pitstat b{color:#dbe6f5}
+.pitstat .up{color:#ff6473}
+.pit-hs{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.pitcard .cc-tags{gap:5px}
+
 .cc-h{display:flex;align-items:center;gap:8px}
 .cc-name{font-size:14px;letter-spacing:.3px}
 .cc-chg{margin-left:auto;font-weight:700;font-size:13px}
@@ -181,6 +190,18 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
 .hsw.r{background:rgba(255,100,115,.18);color:#ff6473}
 .hsw.g{background:rgba(42,212,138,.18);color:#2ad48a}
 @media (max-width:760px){ .coregrid{grid-template-columns:1fr} }
+.topnav{position:sticky;top:0;z-index:40;display:flex;gap:2px;background:rgba(14,18,26,.96);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line);margin:0 0 12px;
+  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.topnav::-webkit-scrollbar{display:none}
+.nv{flex:none;padding:10px 14px;font-size:13px;color:var(--dim);cursor:pointer;white-space:nowrap;
+  border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+.nv:hover{color:#c9d6e8}
+.nv.on{color:var(--amber);font-weight:700;border-bottom-color:var(--amber)}
+.nv b{font-size:10.5px;font-weight:600;color:var(--dim);margin-left:4px;
+  background:rgba(255,255,255,.06);border-radius:4px;padding:0 4px}
+.nv.on b{color:#141a24;background:var(--amber)}
+section[data-nv].nvoff{display:none!important}
 .empty{padding:26px 16px;text-align:center;color:var(--dim);font-size:12.5px;line-height:1.9}
 .bars{display:flex;align-items:flex-end;gap:3px;height:70px;padding:12px 14px 0}
 .bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
@@ -219,6 +240,16 @@ footer b{color:var(--dim)}
 </header>
 <div id="err"></div>
 
+<nav class="topnav" id="topNav">
+  <span class="nv on" data-v="core">核心起爆<b id="nv-core">0</b></span>
+  <span class="nv" data-v="ladder">连板梯队<b id="nv-ladder">0</b></span>
+  <span class="nv" data-v="ind">板块催化<b id="nv-ind">0</b></span>
+  <span class="nv" data-v="flow">资金/早盘</span>
+  <span class="nv" data-v="pit">跌停坑<b id="nv-pit">0</b></span>
+  <span class="nv" data-v="boom">全量信号<b id="nv-boom">0</b></span>
+  <span class="nv" data-v="all">全部</span>
+</nav>
+
 <div class="regime" id="regime">正在加载…</div>
 
 <div class="cards">
@@ -252,7 +283,7 @@ footer b{color:var(--dim)}
   <div id="tcycle" style="padding:12px 14px"></div>
 </section>
 
-<section class="box" id="sec-flow">
+<section class="box" id="sec-flow" data-nv="flow">
   <div class="box-h">
     <h2 style="color:var(--green)">● 资金流向 · 早盘解读</h2>
     <span class="cnt" id="cflow">--</span>
@@ -265,7 +296,7 @@ footer b{color:var(--dim)}
   </div>
 </section>
 
-<section class="box" id="sec-ladder">
+<section class="box" id="sec-ladder" data-nv="ladder">
   <div class="box-h">
     <h2 style="color:var(--red)">● 连板梯队</h2>
     <span class="cnt" id="cladder">--</span>
@@ -280,7 +311,7 @@ footer b{color:var(--dim)}
   </div>
 </section>
 
-<section class="box" id="sec-ind">
+<section class="box" id="sec-ind" data-nv="ind">
   <div class="box-h" style="flex-wrap:wrap">
     <h2 style="color:var(--amber)">● 板块催化</h2>
     <div class="tabs" id="indtabs">
@@ -304,14 +335,14 @@ footer b{color:var(--dim)}
   </div>
 </section>
 
-<section class="box" id="sec-core">
+<section class="box" id="sec-core" data-nv="core">
   <div class="box-h"><h2 style="color:#ff5c8a">● 今日核心起爆池</h2>
     <span class="cnt" id="ccore">--</span>
     <span class="sp"></span>
-    <span class="cnt">只收稀有高胜率信号：生命线 / 平台突破 / 坑 / 底共振</span></div>
+    <span class="cnt">只收「放量向上突破」类：生命线 / 平台强破 / 平台中破 / 底共振 ｜ 坑已独立</span></div>
   <div id="tcore"></div>
 </section>
-<section class="box">
+<section class="box" id="sec-boom" data-nv="boom">
   <div class="box-h" style="flex-wrap:wrap">
     <h2 style="color:var(--amber)">● 起爆体系信号</h2>
     <div class="tabs" id="tabs">
@@ -336,7 +367,17 @@ footer b{color:var(--dim)}
 </section>
 
 
-<section class="box" id="sec-bars">
+
+<section class="box" id="sec-pit" data-nv="pit">
+  <div class="box-h">
+    <h2 style="color:#ff2e63">● 跌停坑 · 恐慌出清</h2>
+    <span class="cnt" id="cpit">--</span>
+    <span class="sp"></span>
+    <span class="cnt">60日新低 + 放量1.5倍 + 跌5% ｜ T+1 开盘买，持20日</span>
+  </div>
+  <div id="tpit"></div>
+</section>
+<section class="box" id="sec-bars" data-nv="boom">
   <div class="box-h"><h2>近 30 日 起爆类信号数</h2>
     <span class="cnt">爆/二爆/二板/生命线</span></div>
   <div class="bars" id="bars"></div>
@@ -905,7 +946,6 @@ function renderIndMain(){
 }
 
 const COREGRP=[
-  {k:'坑',      cls:'m', w:'新低+放量1.5倍+跌5%，20日+8.05% 胜率65.0%'},
   {k:'生命线',  cls:'c', w:'缩量整理不破120日线后放量突破，胜率60.6%'},
   {k:'底共振',  cls:'r', w:'低位+底背离+生命线昂头，胜率60.6%'},
   {k:'平台强破',cls:'r', w:'首板后5~15日平台整理后放量突破，平台最低不破首板收盘'},
@@ -931,6 +971,34 @@ function coreCard(r,grp){
   </div>`;
 }
 
+
+/* ---------------- 顶部 Tab 导航 ---------------- */
+const NVKEY='qibao.nav';
+function applyNav(v,quiet){
+  const nav=document.getElementById('topNav'); if(!nav) return;
+  nav.querySelectorAll('.nv').forEach(e=>e.classList.toggle('on',e.dataset.v===v));
+  document.querySelectorAll('section[data-nv]').forEach(sec=>{
+    sec.classList.toggle('nvoff', v!=='all' && sec.dataset.nv!==v);
+  });
+  // 手机上把选中的 tab 滚进可视区
+  const on=nav.querySelector('.nv.on');
+  if(on && !quiet && nav.scrollWidth>nav.clientWidth){
+    on.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'});
+  }
+  try{ localStorage.setItem(NVKEY,v); }catch(e){}
+}
+function initNav(){
+  const nav=document.getElementById('topNav'); if(!nav) return;
+  let v='core';
+  try{ const k=localStorage.getItem(NVKEY); if(k) v=k; }catch(e){}
+  applyNav(v,true);
+  nav.addEventListener('click',e=>{
+    const it=e.target.closest('.nv'); if(!it) return;
+    applyNav(it.dataset.v);
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+}
+initNav();
 function renderCore(list){
   const box=document.getElementById('tcore');
   const c=document.getElementById('ccore');
@@ -938,7 +1006,7 @@ function renderCore(list){
   list=(list||[]).slice();
   if(c) c.textContent=list.length? list.length+' 只' : '今日无';
   if(!list.length){
-    box.innerHTML='<div class="empty">今天没有稀有信号 —— 一爆/二爆在下面信号表里，那些是观察位不是买点</div>';
+    box.innerHTML='<div class="empty">今天没有「向上突破」类的稀有信号 —— 一爆/二爆在「全量信号」里，那是观察位不是买点。<br>如果是暴跌日，去看「跌停坑」。</div>';
     return;
   }
   const temp=(DATA&&DATA.market&&DATA.market.temp)||0;
@@ -952,20 +1020,6 @@ function renderCore(list){
   if(rest.length) groups.push({g:{k:'其他',cls:'',w:''},rows:rest});
 
   let h='';
-  const PITN=(groups.find(x=>x.g.k==='坑')||{rows:[]}).rows.length;
-  if(PITN>0){
-    h+=`<div class="corenote">市场温度 ${temp.toFixed(1)}%。<b>坑不是接飞刀，越恐慌越强</b>：
-      回测 1500 只 / 6501 个坑 —— 全市场均值&lt;-3% 的暴跌日 <b>+11.78%</b> 胜率 <b>76.2%</b> 亏损占比 23.8%；
-      个股跌停附近 <b>+14.78%</b> 胜率 <b>76.5%</b>。反而「跌了但不暴跌」的阴跌日最差（+4.16%/56.5%）。
-      按 <b>次日开盘价</b>进，当天别追。</div>`;
-  }
-  const ztN=(DATA&&DATA.sentiment&&DATA.sentiment.zt)||0;
-  if(PITN>=10){
-    h+=`<div class="corenote r">今日 <b>${PITN}</b> 只「坑」同时触发（全市场涨停 ${ztN} 家）——
-      这不是 ${PITN} 个买点，是<b>一个信号响了 ${PITN} 次</b>，说明今天是集体跌停日。
-      坑的统计优势是批量的，别指望每只都涨：按「跌得最狠 + 换手最大」挑前 3-5 只，其余当观察。</div>`;
-  }
-
   for(const grp of groups){
     const k=grp.g.k, arr=grp.rows.slice().sort((x,y)=>(y.score||0)-(x.score||0)||((y.hs||0)-(x.hs||0)));
     const LIM=6, open=state.coreOpen[k];
@@ -978,6 +1032,60 @@ function renderCore(list){
       <div class="coregrid">${show.map(r=>coreCard(r,grp.g)).join('')}</div></div>`;
   }
   box.innerHTML=h;
+}
+
+
+/* ---------------- 跌停坑 · 恐慌出清 ---------------- */
+state.pitOpen=false;
+function renderPit(list){
+  const box=document.getElementById('tpit');
+  const c=document.getElementById('cpit');
+  if(!box) return;
+  list=(list||[]).slice().sort((a,b)=>(a.chg-b.chg)||((b.hs||0)-(a.hs||0)));
+  if(c) c.textContent=list.length? list.length+' 只' : '今日无';
+  if(!list.length){
+    box.innerHTML='<div class="empty">今天没有跌停坑 —— 这是好事，说明没出现放量恐慌杀跌</div>';
+    return;
+  }
+  const LIM=12, open=state.pitOpen, show=open?list:list.slice(0,LIM);
+  const ztN=(DATA&&DATA.sentiment&&DATA.sentiment.zt)||0;
+  let h=`<div class="pitstat">
+    <span><b>回测</b> 1500只 / 6501个坑 · 全样本 20日 <b class="up">+9.25%</b> 胜率 67.0% 亏损占比 33.0%</span>
+    <span>暴跌日(全市场&lt;-3%) <b class="up">+11.78%</b> 胜率 <b class="up">76.2%</b> · 个股跌停附近 <b class="up">+14.78%</b> 胜率 <b class="up">76.5%</b></span>
+    <span>最差是「跌了但不暴跌」的阴跌日：+4.16% / 56.5%</span>
+  </div>`;
+  if(list.length>=10){
+    h+=`<div class="corenote r">今日 <b>${list.length}</b> 只坑同时触发（全市场涨停 ${ztN} 家）——
+      这不是 ${list.length} 个买点，是<b>一个信号响了 ${list.length} 次</b>。
+      统计优势是批量的，别指望每只都涨：按「跌得最狠 + 换手最大」挑前 3-5 只，其余当观察。</div>`;
+  }
+  h+='<div class="coregrid">';
+  for(const r of show){
+    const zt=(r.chg<=-9.5)?'跌停':(r.chg<=-5?'大跌':'');
+    h+=`<div class="pitcard">
+      <div class="cc-h">
+        <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
+        <b class="cc-name">${r.name}</b>
+        <span class="cc-chg down">${r.chg.toFixed(2)}%</span>
+        <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
+      </div>
+      <div class="cc-tags">
+        ${zt?`<span class="pill m">${zt}</span>`:''}
+        ${r.tags.filter(t=>t!=='坑').map(t=>`<span class="pill g">${t}</span>`).join(' ')}
+        ${r.hs?`<span class="pit-hs">换手 ${r.hs.toFixed(1)}%</span>`:''}
+        <span class="pit-hs">量比 ${r.vol_ratio.toFixed(2)}</span>
+      </div>
+      <div class="cc-meta">${r.ind||'-'} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'}</div>
+      ${r.reason?`<div class="cc-reason why" data-full="${esc(r.desc||r.reason)}" data-nm="${esc(r.name||'')}" title="${esc(r.desc||r.reason)}">${esc(r.reason)}<b class="more">⋯</b></div>`:''}
+    </div>`;
+  }
+  h+='</div>';
+  if(list.length>LIM){
+    h+=`<div class="cg-more" id="pit-more">${open?'收起 ▴':('还有 '+(list.length-LIM)+' 只 ▾')}</div>`;
+  }
+  box.innerHTML=h;
+  const m=document.getElementById('pit-more');
+  if(m) m.onclick=()=>{ state.pitOpen=!state.pitOpen; renderPit(DATA.pits||[]); };
 }
 
 function renderBoom(rows,q){
@@ -1185,6 +1293,13 @@ function apply(d){
      <span style="color:var(--dim)">${advice}</span>`;
   renderBoom(boom,document.getElementById('qm').value||'');
   renderCore(DATA.core||[]);
+  renderPit(DATA.pits||[]);
+  const setnv=(id,n)=>{ const e=document.getElementById(id); if(e) e.textContent=n||0; };
+  setnv('nv-core',(DATA.core||[]).length);
+  setnv('nv-pit',(DATA.pits||[]).length);
+  setnv('nv-boom',(DATA.boom||[]).length);
+  setnv('nv-ladder',((DATA.leaders||[]).length)+((DATA.ladder&&DATA.ladder['1']||[]).length));
+  setnv('nv-ind',(DATA.ths_blocks||[]).length);
   const tc=document.getElementById('tcore');
   if(tc) tc.onclick=function(e){
     const m=e.target.closest('.cg-more'); if(!m) return;

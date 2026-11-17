@@ -1,5 +1,5 @@
 /* 起爆点·选股雷达 - 离线缓存 */
-const CACHE = 'qibao-radar-v1';
+const CACHE = 'qibao-radar-v2';
 const FILES = ['./', './index.html', './data.json', './auction.json', './data.js',
                './manifest.json', './icon-192.png', './icon-512.png'];
 
