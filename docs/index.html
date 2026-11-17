@@ -153,6 +153,22 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
 .lv-row:last-child{border-bottom:0}
 .lv-num{font-size:20px;font-weight:700;min-width:40px;text-align:right;line-height:1}
 .lv-tag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:5px;flex:none}
+.coregrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:10px}
+.corecard{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:rgba(255,255,255,.02)}
+.corecard.hot{border-color:#ff2e63;background:rgba(255,46,99,.07);box-shadow:0 0 0 1px rgba(255,46,99,.25) inset}
+.cc-h{display:flex;align-items:center;gap:8px}
+.cc-name{font-size:14px;letter-spacing:.3px}
+.cc-chg{margin-left:auto;font-weight:700;font-size:13px}
+.cc-sc{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.cc-tags{margin:7px 0 5px;display:flex;gap:4px;flex-wrap:wrap}
+.cc-why{font-size:11.5px;color:#8fa8c8;line-height:1.5}
+.cc-meta{font-size:11px;color:var(--dim);margin-top:5px}
+.cc-reason{margin-top:6px;font-size:11.5px;color:var(--cyan);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill.hot{background:#ff2e63!important;color:#fff!important;font-weight:700;box-shadow:0 0 8px rgba(255,46,99,.55)}
+.hsw{font-style:normal;font-size:9.5px;border-radius:4px;padding:0 3px;margin-left:3px}
+.hsw.r{background:rgba(255,100,115,.18);color:#ff6473}
+.hsw.g{background:rgba(42,212,138,.18);color:#2ad48a}
+@media (max-width:760px){ .coregrid{grid-template-columns:1fr} }
 .empty{padding:26px 16px;text-align:center;color:var(--dim);font-size:12.5px;line-height:1.9}
 .bars{display:flex;align-items:flex-end;gap:3px;height:70px;padding:12px 14px 0}
 .bars .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
@@ -195,7 +211,7 @@ footer b{color:var(--dim)}
 
 <div class="cards">
   <div class="card a"><div class="n" id="nb">0</div><div class="l">今日信号总数</div></div>
-  <div class="card r"><div class="n" id="ns">0</div><div class="l">强信号（二爆/二板/加仓/生命线）</div></div>
+  <div class="card r"><div class="n" id="ns">0</div><div class="l">强信号（二爆/二板/生命线/坑/平台破）</div></div>
   <div class="card"><div class="n" id="temp">--</div><div class="l">市场温度</div></div>
   <div class="card"><div class="n" id="idx">--</div><div class="l" id="idxn">上证指数</div></div>
 </div>
@@ -276,6 +292,13 @@ footer b{color:var(--dim)}
   </div>
 </section>
 
+<section class="box" id="sec-core">
+  <div class="box-h"><h2 style="color:#ff5c8a">● 今日核心起爆池</h2>
+    <span class="cnt" id="ccore">--</span>
+    <span class="sp"></span>
+    <span class="cnt">只收稀有高胜率信号：生命线 / 平台突破 / 坑 / 底共振</span></div>
+  <div id="tcore"></div>
+</section>
 <section class="box">
   <div class="box-h" style="flex-wrap:wrap">
     <h2 style="color:var(--amber)">● 起爆体系信号</h2>
@@ -300,6 +323,7 @@ footer b{color:var(--dim)}
   <div class="scroll tall" id="tboom-wrapper"><div id="tboom"></div></div>
 </section>
 
+
 <section class="box" id="sec-bars">
   <div class="box-h"><h2>近 30 日 起爆类信号数</h2>
     <span class="cnt">爆/二爆/二板/生命线</span></div>
@@ -313,7 +337,7 @@ footer b{color:var(--dim)}
   <div class="wtip">Esc 或点左侧空白处关闭</div>
 </div></div>
 <footer>
-<b>信号</b>：黄▲一爆（涨≥6%＋1.8倍量＋站上20线）｜红▲二爆（深洗后放量收复5日线，或强洗不破20线后放量破前高，且 MACD 零轴上）｜白▲二板｜◆加仓（连板＋均线多头发散）｜青★生命线（缩量整理不破120日线后放量突破）｜橙「横盘突破」（60日振幅≤30%后爆量破箱顶）｜灰「炸板」（触板未封住，扣分）｜绿▼清仓（破20日线3日未收回）｜蓝▲新低（60日新低）。<br>
+<b>信号（v13.7 对齐同花顺公式）</b>：黄「爆」一爆＝涨≥5%＋1.5倍量＋站上20线＋量比＜5（<b>唤醒不是买点</b>，20日均值 +2.0% 略跑输基准）｜红「二爆」＝深洗后放量收复5日线，或强洗不破20线后放量破前高，且 MACD 零上｜白「二板」｜◆「加仓」＝连板＋均线多头发散｜青「生命线」＝缩量整理不破120日线后放量突破（胜率 60.6%）｜红/橙「平台强破／中破」＝首板后 5~15 日平台上沿缩量整理后放量突破（掩码法，强破要求平台最低不破首板收盘）｜橙「横盘突破」＝60日振幅≤30%后爆量破箱顶｜<b style="color:#ff6473">紫「坑」＝新低＋放量1.5倍＋跌5%（恐慌出清，20日均值 +8.05%／胜率 65.0%，最强买点）</b>｜绿「磨」＝新低＋缩量＋MACD柱缩短＋20线走平（阴跌磨底，胜率 45.4%，回避）｜蓝「新低」＝60日新低（普通）｜蓝「弃」＝首板平台破位｜绿「减仓」＝顶背离/滞涨（仅高位）｜红「清仓」＝高位天量大阴（20日 -2.10%／胜率 35.3%）｜绿「破20」＝破20日线3日未收回｜灰「炸板」＝触板未封。<br>
 <b>三档</b>：趋势档＝市值≥104亿 且 120日位置≥70%｜妖股档＝市值≤50亿、股价≤10元、位置≤30%｜其余归「其他」。位置＝(收盘−120日最低)÷(120日最高−120日最低)。<br>
 <b>情绪周期</b>：冰点（跌停≥20 或 上涨占比≤20%）→ 启动（跌停≤10 且 涨停≥50）→ 发酵（涨停≥60）→ 高潮（涨停≥90 或 上涨占比≥80%）→ 退潮。<b>高潮是卖点，不是买点。</b><br>
 <b>资金流向</b>：行业成交额占全市场比例，与20日均值比较。变化≥+20%为流入；占比连升≥3天标「驻扎」，1-2天标「升温」，0天标「过路」。<br><b>轮动七档</b>（强度→连续性→变动频率）：第一名≤3家＝混沌无主线（空仓）｜连≥3天且≥6家＝主线确立（可重仓）｜连≥2天且≥4家＝主线形成（可加仓）｜≥12家只当1天＝单日爆发（次日看延续）｜换≤1次＝独苗主线（只做龙头）｜换2次＝双线跷跷板（跌的买涨的卖）｜换3-4次＝多点轮动（做首板）｜换5次＝电风扇（只做最强，次日必走）。<br>
@@ -868,6 +892,41 @@ function renderIndMain(){
   if(tabs&&tabs.children) for(const el of tabs.children) el.classList.toggle('on', el.dataset.t===state.indTab);
 }
 
+function renderCore(list){
+  const box=document.getElementById('tcore');
+  const c=document.getElementById('ccore');
+  if(!box) return;
+  list=(list||[]).slice().sort((a,b)=>(b.score||0)-(a.score||0));
+  if(c) c.textContent=list.length? list.length+' 只' : '今日无';
+  if(!list.length){
+    box.innerHTML='<div class="empty">今天没有稀有信号 —— 一爆/二爆在下面信号表里，那些是观察位不是买点</div>';
+    return;
+  }
+  const CL={'底共振':'r','生命线':'c','平台强破':'r','平台中破':'o','坑':'m'};
+  const WHY={'坑':'新低+放量1.5倍+跌5%，恐慌出清，20日+8.05% 胜率65.0%',
+             '生命线':'缩量整理不破120日线后放量突破，胜率60.6%',
+             '平台强破':'首板后5~15日平台整理后放量突破，平台最低不破首板收盘',
+             '平台中破':'首板后平台整理后放量突破（次级）',
+             '底共振':'低位+底背离+生命线昂头，胜率60.6%'};
+  let h='<div class="coregrid">';
+  for(const r of list){
+    const best=r.tags.find(t=>WHY[t])||r.lead;
+    h+=`<div class="corecard${best==='坑'?' hot':''}">
+      <div class="cc-h">
+        <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
+        <b class="cc-name">${r.name}</b>
+        <span class="cc-chg ${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</span>
+        <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
+      </div>
+      <div class="cc-tags">${r.tags.map(t=>`<span class="pill ${CL[t]||''}${t==='坑'?' hot':''}">${t}</span>`).join(' ')}</div>
+      <div class="cc-why">${esc(WHY[best]||'')}</div>
+      <div class="cc-meta">${r.ind||'-'} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'} · 量比${r.vol_ratio.toFixed(2)}${r.hs?' · 换手'+r.hs.toFixed(1)+'%':''}</div>
+      ${r.reason?`<div class="cc-reason why" data-full="${esc(r.desc||r.reason)}" data-nm="${esc(r.name||'')}" title="${esc(r.desc||r.reason)}">${esc(r.reason)}<b class="more">⋯</b></div>`:''}
+    </div>`;
+  }
+  box.innerHTML=h+'</div>';
+}
+
 function renderBoom(rows,q){
   const box=document.getElementById('tboom');
   let rr=rows.filter(x=>!q||x.code.includes(q)||x.name.includes(q));
@@ -877,14 +936,16 @@ function renderBoom(rows,q){
     return vb-va;
   });
   if(!rr.length){ box.innerHTML='<div class="empty">本档今日无信号</div>'; return; }
-  const CL={'爆':'y','二爆':'r','二板':'w','加仓':'m','生命线':'c','新低':'b','清仓':'g','横盘突破':'o','炸板':'z'};
+  const CL={'爆':'y','二爆':'r','二板':'w','加仓':'m','生命线':'c','新低':'b','清仓':'g',
+    '横盘突破':'o','炸板':'z','底共振':'r','底背离':'y','平台强破':'r','平台中破':'o',
+    '坑':'m','磨':'g','弃':'g','减仓':'g','破20':'g'};
   let h='<table><thead><tr><th>代码</th><th>名称</th><th class="hm" style="text-align:left">行业</th>'+
         '<th class="hm">连板</th><th class="hm">现价</th><th>涨跌幅</th>'+
         '<th style="text-align:left">信号类型</th><th style="text-align:left">异动解读</th>'+
         '<th class="hm" style="text-align:left">催化</th>'+
-        '<th class="hm">市值</th><th class="hm">位置</th><th class="hm">量比</th><th>距20线</th></tr></thead><tbody>';
+        '<th class="hm">市值</th><th class="hm">位置</th><th class="hm">量比</th><th class="hm">换手</th><th>距20线</th></tr></thead><tbody>';
   for(const r of rr){
-    const pills=r.tags.map(t=>`<span class="pill ${CL[t]||''}">${t}</span>`).join(' ');
+    const pills=r.tags.map(t=>`<span class="pill ${CL[t]||''}${t==='坑'?' hot':''}">${t}</span>`).join(' ');
     const ccls=r.cat==='强催化'?'r':(r.cat==='中催化'?'y':'');
     const tr = r.track==='T'? '<span class="pill r" title="大市值高位·趋势档">趋</span>'
              : r.track==='Y'? '<span class="pill m" title="小市值低价低位·妖股档">妖</span>' : '';
@@ -901,6 +962,8 @@ function renderBoom(rows,q){
       <td class="hm">${r.cap?r.cap.toFixed(0)+'亿':'-'}</td>
       <td class="hm ${r.pos>=70?'up':(r.pos<=30?'down':'')}">${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'}</td>
       <td class="hm">${r.vol_ratio.toFixed(2)}</td>
+      <td class="hm ${r.hsw==='过热'?'up':(r.hsw==='初动'?'down':'')}">${r.hs?r.hs.toFixed(1)+'%':' - '}${
+        r.hsw==='过热'?'<i class="hsw r">热</i>':(r.hsw==='初动'?'<i class="hsw g">初</i>':'')}</td>
       <td class="${r.ma20_gap>0?'up':'down'}">${r.ma20_gap>0?'+':''}${r.ma20_gap.toFixed(2)}%</td></tr>`;
   }
   box.innerHTML=h+'</tbody></table>';
@@ -1046,7 +1109,7 @@ function apply(d){
   }
   document.getElementById('nb').textContent=boom.length;
   document.getElementById('ns').textContent=
-    boom.filter(x=>x.tags.some(t=>['二爆','二板','加仓','生命线'].includes(t))).length;
+    boom.filter(x=>x.tags.some(t=>['二爆','二板','加仓','生命线','底共振','平台强破','平台中破','坑','横盘突破'].includes(t))).length;
   document.getElementById('temp').textContent=(m.temp??'--')+'%';
   const ix=(m.indexes||[])[0];
   if(ix){document.getElementById('idx').textContent=(ix.chg>0?'+':'')+ix.chg.toFixed(2)+'%';
@@ -1068,6 +1131,7 @@ function apply(d){
      ${stxt}
      <span style="color:var(--dim)">${advice}</span>`;
   renderBoom(boom,document.getElementById('qm').value||'');
+  renderCore(DATA.core||[]);
   renderPick(d.picks, d.stage);
   renderCycle(d.cycle, d.stage);
   renderFlow(d.flow);
