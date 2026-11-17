@@ -207,6 +207,7 @@ def ths_zt_detail(d):
             seal=round((it.get("order_amount") or 0) / 1e8, 2),
             opn=int(it.get("open_num") or 0),
             hs=round(float(it.get("turnover_rate") or 0), 2),
+            cval=float(it.get("currency_value") or 0),
             again=int(it.get("is_again_limit") or 0))
     blocks, detail = [], {}
     for b in (ths_get("block_top", d) or []):
@@ -597,6 +598,45 @@ def _ladder_verdict(ratio3):
     return "断层·无人跟", "g", 0
 
 
+def _light_amt(sym):
+    """取昨日成交额（元）：腾讯日K 收*量*100（qfqday 无金额字段，用收盘价估算）"""
+    u = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=%s,day,,,6,qfq" % sym
+    t = get(u)
+    if not t:
+        return 0.0
+    try:
+        j = json.loads(t)
+        if j.get("code") != 0:
+            return 0.0
+        d = j["data"][sym]
+        bars = d.get("qfqday") or d.get("day") or []
+        if not bars:
+            return 0.0
+        b = bars[-1]
+        return float(b[2]) * float(b[5]) * 100.0
+    except Exception:
+        return 0.0
+
+
+def _fill_prev_amt(base):
+    """补齐缺失的昨日成交额，返回补齐只数"""
+    need = [c for c, b in base.items() if b.get("prev_amt", 0) <= 0]
+    if not need:
+        return 0
+    from concurrent.futures import ThreadPoolExecutor
+
+    def w(c):
+        return c, _light_amt(_sym(c))
+
+    ok = 0
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for c, a in ex.map(w, need):
+            if a > 0:
+                base[c]["prev_amt"] = a
+                ok += 1
+    return ok
+
+
 def do_auction(uni=None):
     """9:25 集合竞价三判：空间龙量价 / 梯队晋级 / 资金是否认可"""
     now = bjnow()
@@ -611,13 +651,7 @@ def do_auction(uni=None):
     pool = (ths_get("limit_up_pool", ps,
                     "&page=1&limit=300&field=" + THS_FIELD +
                     "&order_field=330329&order_type=0") or {}).get("info") or []
-    if not pool:
-        out["message"] = "未取到昨日涨停池"
-        json.dump(out, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
-                  ensure_ascii=False)
-        print("auction: 昨日涨停池为空")
-        return out
-    base = {}
+    base, src = {}, "同花顺昨日池"
     for it in pool:
         c = str(it.get("code") or "")
         if not c:
@@ -631,6 +665,37 @@ def do_auction(uni=None):
                        ftime=int(it.get("first_limit_up_time") or 0),
                        reason=(it.get("reason_type") or "").strip(),
                        prev_amt=cv * tv / 100.0)
+    if not base:
+        # 早盘同花顺对历史日期常返回空 → 回退昨天 15:35 定稿的 data.json
+        src = "本地定稿 data.json"
+        try:
+            dj = json.load(open(os.path.join(DOCS, "data.json"), encoding="utf-8"))
+            for it in (dj.get("ths_zt") or []):
+                c = str(it.get("code") or "")
+                if not c:
+                    continue
+                cv = float(it.get("cval") or 0)
+                tv = float(it.get("tov") or it.get("hs") or 0)
+                base[c] = dict(code=c, name=(it.get("name") or "").strip(),
+                               lb=_lb_num(it.get("hd")), hd=it.get("hd") or "",
+                               seal=float(it.get("seal") or 0), tov=round(tv, 2),
+                               opn=int(it.get("opn") or 0), ftime=0,
+                               reason=(it.get("reason") or "").strip(),
+                               prev_amt=cv * tv / 100.0)
+            out["prev_snapshot"] = dj.get("trade_date") or ""
+            print("auction: 回退本地定稿 %s，%d 只" % (out["prev_snapshot"], len(base)))
+        except Exception as e:
+            print("auction: 本地定稿回退失败 %s" % e)
+    if not base:
+        out["message"] = "未取到昨日涨停池（同花顺历史池与本地定稿均空）"
+        json.dump(out, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False)
+        print("auction: 昨日涨停池为空")
+        return out
+    filled = _fill_prev_amt(base)
+    out["src"] = src
+    if filled:
+        out["filled"] = filled
     q = snapshot([_sym(c) for c in base])
     rows = []
     for c, b in base.items():
@@ -1394,7 +1459,8 @@ def main():
                    ths_blocks=tblk,
                    ths_zt=[dict(code=k, name=v.get("name", ""), reason=v.get("reason", ""),
                                 hd=v.get("hd", ""), seal=v.get("seal", 0),
-                                hs=v.get("hs", 0), opn=v.get("opn", 0))
+                                hs=v.get("hs", 0), cval=v.get("cval", 0),
+                                opn=v.get("opn", 0))
                            for k, v in tzt.items()],
                    ths_desc=tdet,
                    fetch_ok=ok_fetch, fetch_total=len(uni), error=err)
