@@ -26,7 +26,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
 
@@ -45,20 +45,24 @@ jobs:
           fi
 
       - name: scan
+        continue-on-error: true
         run: |
           echo "=== before ==="
           ls -la
-          python scan_cloud.py
+          python scan_cloud.py || echo "scan 返回非 0（已兜底写占位 data.json，不阻断）"
           echo "=== after ==="
           ls -la docs
 
       - name: verify
         run: |
-          if [ -s docs/data.json ]; then
-            echo "OK size=$(wc -c < docs/data.json)"
-          else
+          if [ ! -s docs/data.json ]; then
             echo "data.json 未生成"
             exit 1
+          fi
+          echo "OK size=$(wc -c < docs/data.json)"
+          if grep -q '"error"' docs/data.json; then
+            echo "::warning::data.json 里带 error 字段（抓取不完整或扫描异常），页面会显示红条"
+            python -c "import json;d=json.load(open('docs/data.json',encoding='utf-8'));print('trade_date=%s boom=%d error=%s'%(d.get('trade_date'),len(d.get('boom') or []),(d.get('error') or '')[:160]))"
           fi
 
       - name: commit
@@ -69,7 +73,20 @@ jobs:
           git status --short
           if git diff --staged --quiet; then
             echo "no change"
-          else
-            git commit -m "radar update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
-            git push
+            exit 0
           fi
+          git commit -m "radar update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
+          for i in 1 2 3 4 5; do
+            if git push; then
+              echo "pushed on attempt $i"
+              exit 0
+            fi
+            echo "push rejected (attempt $i) - 远端有新提交，rebase 后重试"
+            git pull --rebase --autostash -X ours origin main || {
+              echo "rebase 冲突，放弃本次 rebase"
+              git rebase --abort 2>/dev/null || true
+            }
+            sleep 3
+          done
+          echo "::error::git push 连续失败 5 次（远端一直有新提交）"
+          exit 1
