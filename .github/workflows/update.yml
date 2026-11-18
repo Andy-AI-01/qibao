@@ -75,18 +75,16 @@ jobs:
             echo "no change"
             exit 0
           fi
-          git commit -m "radar update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
           for i in 1 2 3 4 5; do
-            if git push; then
+            git fetch --depth=1 origin main || true
+            git reset --soft origin/main 2>/dev/null || true
+            git commit -q -m "radar update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')" --allow-empty || true
+            if git push origin HEAD:main; then
               echo "pushed on attempt $i"
               exit 0
             fi
-            echo "push rejected (attempt $i) - 远端有新提交，rebase 后重试"
-            git pull --rebase --autostash -X ours origin main || {
-              echo "rebase 冲突，放弃本次 rebase"
-              git rebase --abort 2>/dev/null || true
-            }
-            sleep 3
+            echo "push rejected (attempt $i) - 远端有新提交，重新对齐后再试"
+            sleep 5
           done
           echo "::error::git push 连续失败 5 次（远端一直有新提交）"
           exit 1
