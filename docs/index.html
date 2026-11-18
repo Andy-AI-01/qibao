@@ -168,6 +168,9 @@ select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
   font-size:12px;line-height:1.75;padding:9px 12px;border-radius:0 8px 8px 0;margin-bottom:11px}
 .corenote.r{border-left-color:#ff2e63;background:rgba(255,46,99,.07);color:#f3b8c4}
 .corenote b{color:#fff}
+.drmore{margin:8px 0 2px;text-align:center;font-size:11.5px;color:var(--amber);
+  cursor:pointer;user-select:none;padding:5px;border-radius:6px;background:rgba(255,255,255,.03)}
+.drmore:hover{background:rgba(255,255,255,.07)}
 .drank{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:4px 0 10px}
 .drh{display:flex;align-items:center;justify-content:space-between;
   padding:7px 12px;background:rgba(167,139,250,.07);border-bottom:1px solid var(--line);
@@ -320,17 +323,6 @@ footer b{color:var(--dim)}
 </header>
 <div id="err"></div>
 
-<nav class="topnav" id="topNav">
-  <span class="nv on" data-v="core">核心起爆<b id="nv-core">0</b></span>
-  <span class="nv" data-v="boom">全量信号<b id="nv-boom">0</b></span>
-  <span class="nv" data-v="lhb">龙虎榜<b id="nv-lhb">0</b></span>
-  <span class="nv" data-v="ladder">连板梯队<b id="nv-ladder">0</b></span>
-  <span class="nv" data-v="ind">板块催化<b id="nv-ind">0</b></span>
-  <span class="nv" data-v="pit">跌停坑<b id="nv-pit">0</b></span>
-  <span class="nv" data-v="flow">资金/早盘</span>
-  <span class="nv" data-v="all">全部</span>
-</nav>
-
 <div class="regime" id="regime">正在加载…</div>
 
 <div class="cards">
@@ -363,6 +355,18 @@ footer b{color:var(--dim)}
   </div>
   <div id="tcycle" style="padding:12px 14px"></div>
 </section>
+
+<nav class="topnav" id="topNav">
+  <span class="nv on" data-v="core">核心起爆<b id="nv-core">0</b></span>
+  <span class="nv" data-v="boom">全量信号<b id="nv-boom">0</b></span>
+  <span class="nv" data-v="lhb">龙虎榜<b id="nv-lhb">0</b></span>
+  <span class="nv" data-v="ladder">连板梯队<b id="nv-ladder">0</b></span>
+  <span class="nv" data-v="ind">板块催化<b id="nv-ind">0</b></span>
+  <span class="nv" data-v="pit">跌停坑<b id="nv-pit">0</b></span>
+  <span class="nv" data-v="flow">资金/早盘</span>
+  <span class="nv" data-v="all">全部</span>
+</nav>
+
 
 <section class="box" id="sec-flow" data-nv="flow">
   <div class="box-h">
@@ -493,7 +497,7 @@ footer b{color:var(--dim)}
 <script src="data.js"></script>
 <script>
 let DATA=null;
-const state={track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}, ladOpen:{}, boomLimit:100};
+const state={deptLimit:12,track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}, ladOpen:{}, boomLimit:100};
 const EXPDATA={};
 function stockTable(stocks){
   if(!stocks||!stocks.length) return '<div style="padding:8px 12px;color:#5a6779;font-size:12px">今日无个股明细</div>';
@@ -1287,11 +1291,14 @@ function renderLhb(list, top, brief){
 
 function deptRank(list){
   if(!list||!list.length) return '';
+  const LIM = state.deptLimit || 12;
+  const shown = list.slice(0, LIM);
+  const more = list.length - shown.length;
   let h=`<div class="drank">
     <div class="drh"><span>营业部净买排行</span>
-      <span class="dimx">按净额排序 · 只显示前 ${list.length}</span></div>
+      <span class="dimx">按净额排序 · 共 ${list.length} 个${more>0?' · 显示前 '+LIM:''}</span></div>
     <div class="drlist">`;
-  list.forEach((d,i)=>{
+  shown.forEach((d,i)=>{
     const num=String(i+1).padStart(2,'0');
     const up=d.net>0;
     h+=`<div class="drow">
@@ -1308,7 +1315,9 @@ function deptRank(list){
       <span class="dnet ${up?'up':'down'}">${up?'+':''}${(d.net/1e4).toFixed(2)}亿</span>
     </div>`;
   });
-  h+=`</div></div>`;
+  h+=`</div>`;
+  if(more>0) h+=`<div class="drmore" data-dmore="1">展开全部 ${list.length} 个 ▾</div>`;
+  h+=`</div>`;
   return h;
 }
 function lhbTable(arr, cap){
@@ -1674,6 +1683,8 @@ document.getElementById('tflow').addEventListener('click',e=>{
 
 /* 异动解读：点开看全文（关键词高亮） */
 document.addEventListener('click',e=>{
+  const dm=e.target.closest('[data-dmore]');
+  if(dm){ state.deptLimit=(state.deptLimit||12)+200; renderLhb(DATA.lhb,DATA.lhb_top,DATA.lhb_brief); return; }
   const w=e.target.closest('.why[data-full]');
   if(w){
     const mt=document.getElementById('mtt');
