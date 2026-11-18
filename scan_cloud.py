@@ -478,20 +478,35 @@ def lhb_dept_rank(seats, name_map, top=20):
     arr = [x for x in agg.values() if x["net"] != 0]
     arr.sort(key=lambda x: -abs(x["net"]))
 
-    # 只留「频繁 + 大资金」的活跃席位（不是每天把所有营业部都列一遍）
-    #   频繁：当天上榜股票数 >= 8 只   大资金：买入 >= 1.5 亿
-    #   或者：单日净买 >= 3 亿（票虽少但砸得起）
+    # 只留「频繁 + 大资金」的席位，但**已知游资席位一律保留**（哪怕当天只上榜 1 只）
+    #   已知席位：命中 HOTMONEY 的（紫阳东路 / 知春路 / 江苏路 ...）
+    #   未识别营业部：要求 上榜>=8只 且 买入>=1.5亿，或 净额>=3亿
     def _active(a, nc=8, na=15000.0, nn=30000.0):
         return (a["n"] >= nc and a["buy"] >= na) or (abs(a["net"]) >= nn and a["n"] >= 2)
 
-    act = [x for x in arr if _active(x)]
-    if len(act) < 5:                       # 冷清日放宽
-        act = [x for x in arr if _active(x, 5, 8000.0, 15000.0)]
-    if len(act) < 5:
-        act = arr[:12]
-    act.sort(key=lambda x: -x["net"])
-    print("龙虎榜营业部：全部 %d 个 -> 活跃 %d 个" % (len(arr), len(act)), flush=True)
-    return act[:top]
+    act = []
+    for x in arr:
+        if x.get("tag"):                                  # 已知游资席位：保留
+            if x["n"] >= 2 or abs(x["net"]) >= 1000.0:    # 但滤掉几乎没量的挂单
+                act.append(x)
+        elif _active(x):                                  # 未识别：只留大资金
+            act.append(x)
+    if len(act) < 8:                                      # 冷清日放宽
+        act = [x for x in arr if x.get("tag") or _active(x, 5, 8000.0, 15000.0)]
+    # 最后一道闸：只留「有量」的 —— 上榜>=3 只 或 净额>=3000万
+    # （这样"只上榜1只但砸了3亿"的席位留得住，蹭边的 1 只小单被滤掉）
+    # 聚合型标签（拉萨/杭州/机构通道…）走门槛；精确地名席位（紫阳东路/知春路…）一律保留
+    GROUP_TAG = {"拉萨", "杭州", "苏州", "广州", "成都", "佛山", "温州",
+                 "浙江互联网", "机构通道", "北向", "外资", "机构专用", ""}
+    out = [x for x in act
+           if (x.get("tag") not in GROUP_TAG)          # 精确游资席位：留
+           or x["n"] >= 3 or abs(x["net"]) >= 3000.0]
+    if len(out) < 10:                       # 冷清日放宽
+        out = [x for x in act if (x["n"] >= 2 or abs(x["net"]) >= 1000.0)]
+    out.sort(key=lambda x: -abs(x["net"]))
+    print("龙虎榜营业部：全部 %d -> 活跃 %d -> 输出 %d"
+          % (len(arr), len(act), len(out)), flush=True)
+    return out[:top]
 
 
 def lhb_today(date_str):
@@ -606,7 +621,7 @@ def lhb_today(date_str):
     # 营业部净买排行
     nmap = {r["c"]: r["n"] for r in rows}
     try:
-        drank = lhb_dept_rank(seats, nmap, top=24)
+        drank = lhb_dept_rank(seats, nmap, top=45)
     except Exception:
         drank = []
 
@@ -2249,4 +2264,19 @@ if __name__ == "__main__":
             import traceback
             print("!!!!! scan_cloud 主流程崩溃，完整 traceback 如下 !!!!!", flush=True)
             traceback.print_exc()
+            # 崩了也要留一份 data.json，否则整个 workflow 红叉 + 页面空白
+            try:
+                now = bjnow()
+                err = dict(
+                    trade_date=now.strftime("%Y-%m-%d"),
+                    updated=now.strftime("%Y-%m-%d %H:%M:%S"),
+                    universe=0, boom=[], auction=[], mode="", error="扫描崩溃：" +
+                    (traceback.format_exc().strip().splitlines() or ["未知"])[-1][:200])
+                js = json.dumps(err, ensure_ascii=False)
+                io.open(os.path.join(DOCS, "data.json"), "w", encoding="utf-8").write(js)
+                io.open(os.path.join(DOCS, "data.js"), "w", encoding="utf-8").write(
+                    "window.__DATA__=" + js + ";")
+                print("已写入占位 data.json（带 error 字段）", flush=True)
+            except Exception:
+                pass
             sys.exit(1)
