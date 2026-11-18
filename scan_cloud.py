@@ -274,46 +274,46 @@ HOTMONEY = [
     # 字段：(代号, 风格, 营业部关键词[], 备注)
     # 风格：超短隔日 / 三板组 / 撬板王 / 格局王 / 打板客 / 低吸派 / 首板挖掘
     #       量化通道 / 机构席位 / 北向资金 / 外资券商 / 散户型 / 波段派
-    ("拉萨天团", "散户型",
+    ("拉萨", "散户型",
      ["东方财富证券股份有限公司拉萨", "东方财富证券股份有限公司山南",
       "东方财富证券股份有限公司昌都", "东方财富证券股份有限公司林芝",
       "东方财富证券股份有限公司日喀则", "东方财富证券股份有限公司那曲"],
      "东财西藏各营业部，散户与量化混合"),
-    ("赵老哥", "超短隔日", ["江苏路证券营业部"], "国泰海通上海江苏路"),
-    ("量化打板", "量化通道", ["浙江互联网分公司"], "国信浙江互联网分公司"),
+    ("江苏路", "超短隔日", ["长宁区江苏路", "江苏路证券营业部"], "上海长宁区江苏路席位，不是赵老哥"),
+    ("浙江互联网", "量化通道", ["浙江互联网分公司"], "国信浙江互联网分公司"),
     ("机构通道", "机构席位",
      ["证券股份有限公司总部", "证券股份有限公司上海分公司",
       "证券股份有限公司北京分公司", "证券股份有限公司深圳分公司"],
      "券商总部/分公司席位，机构与量化混合"),
-    ("章盟主", "格局王",
+    ("绍兴路", "格局王",
      ["银河证券股份有限公司绍兴", "华鑫证券有限责任公司上海分公司",
       "华鑫证券有限责任公司上海徐汇区瑞平路"], "浙江绍兴系，偏大市值中线"),
-    ("炒股养家", "格局王",
+    ("茅台路", "格局王",
      ["华鑫证券有限责任公司上海茅台路", "上海茅台路"], "上海茅台路，中线锁仓"),
     ("玉兰路", "超短隔日", ["南京玉兰路"], "华泰南京玉兰路"),
     ("红岭路", "超短隔日", ["深圳红岭中路", "红岭路"], "国泰海通深圳红岭中路"),
-    ("成都系", "三板组",
+    ("成都", "三板组",
      ["成都科华北路", "国金证券股份有限公司成都", "成都天府大道"], "成都系接力"),
-    ("佛山系", "打板客",
+    ("佛山", "打板客",
      ["佛山绿景路", "佛山普澜二路", "证券股份有限公司佛山"], "佛山无影脚，打板即走"),
-    ("温州帮", "撬板王",
+    ("温州", "撬板王",
      ["证券股份有限公司温州", "温州大南路", "温州车站大道"], "温州系，撬板与对倒"),
     ("宁波桑田路", "打板客", ["宁波桑田路"], "华鑫宁波桑田路"),
     ("湖里大道", "超短隔日", ["厦门湖滨南路", "湖里大道"], "华福厦门湖滨南路"),
     ("思明南路", "低吸派",
      ["厦门思明南路", "思明南路"], "厦门思明南路一带，回调低吸"),
     ("欢乐海岸", "格局王", ["益田路荣超商务中心"], "华泰深圳益田路荣超商务中心"),
-    ("大小说家", "超短隔日", ["镇江句容", "句容华阳"], "华泰镇江句容"),
-    ("著名刺客", "打板客", ["华鑫证券有限责任公司宁波分公司"], "华鑫宁波分公司"),
-    ("撬板王", "撬板王", ["北京望京"], "银河北京望京，跌停撬板"),
-    ("葛卫东", "格局王",
+    ("句容", "超短隔日", ["镇江句容", "句容华阳"], "华泰镇江句容"),
+    ("宁波华鑫", "打板客", ["华鑫证券有限责任公司宁波分公司"], "华鑫宁波分公司"),
+    ("望京", "撬板王", ["北京望京"], "银河北京望京，跌停撬板"),
+    ("世纪大道", "格局王",
      ["中信证券股份有限公司上海世纪大道", "上海世纪大道"], "上海世纪大道，大资金中线"),
-    ("陈小群", "超短隔日", ["宛平南路"], "华鑫上海宛平南路"),
-    ("苏南帮", "三板组",
+    ("宛平南路", "超短隔日", ["宛平南路"], "华鑫上海宛平南路"),
+    ("苏州", "三板组",
      ["证券股份有限公司苏州", "苏州工业园区"], "苏州系，高位接力"),
-    ("浙江帮", "超短隔日",
+    ("杭州", "超短隔日",
      ["证券股份有限公司杭州", "杭州庆春路"], "杭州系"),
-    ("广东帮", "低吸派",
+    ("广州", "低吸派",
      ["证券股份有限公司广州", "广州天河北路"], "广州系，回调低吸"),
     ("低位挖掘", "首板挖掘", [], "低位首板型席位，无固定营业部"),
     ("宁波解放南路", "超短隔日", ["宁波解放南路"], "银河宁波解放南路，老牌超短"),
@@ -333,17 +333,27 @@ STYLE_CLS = {
 
 
 def _hm_load():
-    """优先读 docs/hotmoney.json，允许用户自己加"""
+    """内置表打底 + docs/hotmoney.json 覆盖/追加
+    （旧文件不会再把内置新增席位"回退"掉）"""
+    out = [(a, b, list(c), d) for (a, b, c, d) in HOTMONEY]
     p = os.path.join(DOCS, "hotmoney.json")
     try:
         arr = json.load(io.open(p, encoding="utf-8"))
-        out = []
-        for it in arr:
-            out.append((it.get("tag", ""), it.get("style", ""),
-                        it.get("keys") or [], it.get("note", "")))
-        return out or HOTMONEY
     except Exception:
-        return HOTMONEY
+        return out
+    idx = {t[0]: i for i, t in enumerate(out)}
+    for it in (arr or []):
+        tag = (it.get("tag") or "").strip()
+        keys = it.get("keys") or []
+        if not tag or not keys:
+            continue
+        rec = (tag, it.get("style") or "", keys, it.get("note") or "")
+        if tag in idx:
+            out[idx[tag]] = rec
+        else:
+            out.append(rec)
+            idx[tag] = len(out) - 1
+    return out
 
 
 _HM = None
@@ -466,8 +476,22 @@ def lhb_dept_rank(seats, name_map, top=20):
             elif a["net"] <= -1e4 and nb == 0:
                 a["style"] = "单边砸盘"
     arr = [x for x in agg.values() if x["net"] != 0]
-    arr.sort(key=lambda x: -x["net"])
-    return arr[:top]
+    arr.sort(key=lambda x: -abs(x["net"]))
+
+    # 只留「频繁 + 大资金」的活跃席位（不是每天把所有营业部都列一遍）
+    #   频繁：当天上榜股票数 >= 8 只   大资金：买入 >= 1.5 亿
+    #   或者：单日净买 >= 3 亿（票虽少但砸得起）
+    def _active(a, nc=8, na=15000.0, nn=30000.0):
+        return (a["n"] >= nc and a["buy"] >= na) or (abs(a["net"]) >= nn and a["n"] >= 2)
+
+    act = [x for x in arr if _active(x)]
+    if len(act) < 5:                       # 冷清日放宽
+        act = [x for x in arr if _active(x, 5, 8000.0, 15000.0)]
+    if len(act) < 5:
+        act = arr[:12]
+    act.sort(key=lambda x: -x["net"])
+    print("龙虎榜营业部：全部 %d 个 -> 活跃 %d 个" % (len(arr), len(act)), flush=True)
+    return act[:top]
 
 
 def lhb_today(date_str):
@@ -1280,6 +1304,51 @@ def _fill_prev_amt(base):
     return ok
 
 
+EM_ZT = ("https://push2ex.eastmoney.com/getTopicZTPool"
+         "?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt&Pageindex=0"
+         "&pagesize=600&sort=fbt:asc&date=")
+
+
+def em_zt_pool(date_str):
+    """东财涨停池（支持历史日期，含成交额 amount）。
+    返回 [{c,n,lb,amt,hs,ltsz,fund,zbc,fbt,hybk}]，失败返回 []"""
+    d = _norm_date(date_str).replace("-", "")
+    txt = get(EM_ZT + d, enc="utf-8")
+    if not txt:
+        return []
+    try:
+        j = json.loads(txt)
+    except Exception:
+        return []
+    out = []
+    for x in (((j.get("data") or {}).get("pool")) or []):
+        c = str(x.get("c") or "")
+        if not c:
+            continue
+        out.append(dict(c=c, n=(x.get("n") or c).strip(),
+                        lb=int(x.get("lbc") or 1),
+                        amt=float(x.get("amount") or 0),
+                        hs=round(float(x.get("hs") or 0), 2),
+                        ltsz=float(x.get("ltsz") or 0),
+                        fund=float(x.get("fund") or 0),
+                        zbc=int(x.get("zbc") or 0),
+                        fbt=str(x.get("fbt") or ""),
+                        hybk=(x.get("hybk") or "").strip()))
+    return out
+
+
+def em_prev_pool(base=None, back=6):
+    """从 base 往前找第一个有涨停数据的交易日 -> (date, pool)"""
+    d0 = base or bjnow()
+    for i in range(1, back + 1):
+        d = d0 - datetime.timedelta(days=i)
+        pool = em_zt_pool(d.strftime("%Y%m%d"))
+        if pool:
+            return d.strftime("%Y-%m-%d"), pool
+        time.sleep(0.15)
+    return "", []
+
+
 def do_auction(uni=None):
     """9:25 集合竞价三判：空间龙量价 / 梯队晋级 / 资金是否认可"""
     now = bjnow()
@@ -1291,10 +1360,30 @@ def do_auction(uni=None):
                prev=prev.strftime("%Y-%m-%d"), valid=False, items=[], dragon=None,
                dragons=[], ladder=[], follow=None, verdict=None, idx=[],
                message="")
-    pool = (ths_get("limit_up_pool", ps,
-                    "&page=1&limit=300&field=" + THS_FIELD +
-                    "&order_field=330329&order_type=0") or {}).get("info") or []
-    base, src = {}, "同花顺昨日池"
+    base, src = {}, ""
+
+    # ① 东财涨停池（支持历史日期，早盘也能拿到；自带成交额，不用估）
+    try:
+        edate, epool = em_prev_pool()
+        if epool:
+            src = "东财涨停池"
+            out["prev"] = edate
+            for r in epool:
+                base[r["c"]] = dict(code=r["c"], name=r["n"], lb=r["lb"],
+                                    hd="%d板" % r["lb"], seal=round(r["fund"] / 1e8, 2),
+                                    tov=r["hs"], opn=r["zbc"], ftime=int(r["fbt"] or 0),
+                                    reason=r["hybk"], prev_amt=r["amt"])
+            print("auction: 东财涨停池 %s，%d 只" % (edate, len(base)), flush=True)
+    except Exception as e:
+        print("auction: 东财池失败 %s" % e, flush=True)
+
+    # ② 同花顺昨日池（当日有效，历史日期早盘常为空）
+    pool = []
+    if not base:
+        pool = (ths_get("limit_up_pool", ps,
+                        "&page=1&limit=300&field=" + THS_FIELD +
+                        "&order_field=330329&order_type=0") or {}).get("info") or []
+        src = "同花顺昨日池"
     for it in pool:
         c = str(it.get("code") or "")
         if not c:
@@ -1330,7 +1419,7 @@ def do_auction(uni=None):
         except Exception as e:
             print("auction: 本地定稿回退失败 %s" % e)
     if not base:
-        out["message"] = "未取到昨日涨停池（同花顺历史池与本地定稿均空）"
+        out["message"] = "未取到昨日涨停池（东财/同花顺/本地定稿均空）"
         json.dump(out, open(os.path.join(DOCS, "auction.json"), "w", encoding="utf-8"),
                   ensure_ascii=False)
         print("auction: 昨日涨停池为空")
