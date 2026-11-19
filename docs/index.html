@@ -1154,7 +1154,7 @@ function coreCard(r,grp){
   return `<div class="corecard${hot?' hot':''}">
     <div class="cc-h">
       <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
-      <b class="cc-name">${r.name}</b>
+      <b class="cc-name">${esc(r.name||'')}</b>
       <span class="cc-chg ${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</span>
       <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
     </div>
@@ -1655,7 +1655,7 @@ function renderBoom(rows,q){
              : r.track==='Y'? '<span class="pill m" title="小市值低价低位·妖股档">妖</span>' : '';
     h+=`<tr>
       <td><a class="code" href="${link(r.code)}" target="_blank">${r.code}</a></td>
-      <td><span class="name">${tr}${r.name}</span></td>
+      <td><span class="name">${tr}${esc(r.name||'')}</span></td>
       <td class="hm" style="text-align:left;color:var(--dim)">${r.ind||'-'}</td>
       <td class="hm ${(r.lbc||0)>=3?'up':''}">${r.lbc? r.lbc+'板' : (r.ztj||'-')}</td>
       <td class="hm">${r.close.toFixed(2)}</td>
