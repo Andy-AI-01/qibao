@@ -5,8 +5,8 @@ on:
     # 盘前一次（UTC 00:40 = 北京 08:40），跑出「盘前解读」
     - cron: '40 0 * * 1-5'
     # 注意：09:25 的竞价采集由 auction.yml 独占（独立 concurrency 组，不会被本工作流挡）
-    # 这里只留 09:30 的兜底：万一 auction.yml 没跑，本工作流的 auction 步骤会补采
-    - cron: '30 1 * * 1-5'
+    # 09:30 的兜底不需要单独 cron —— 下面 */15 1-6 在 UTC 01:30 必然触发，
+    # 且 auction 步骤的 923-931 时间窗会命中，等于天然兜底。（原先多写一条 30 1 会重复跑）
     # 盘中每 15 分钟（UTC 01:00-06:45 = 北京 09:00-14:45）
     - cron: '*/15 1-6 * * 1-5'
     # 收盘瞬间（UTC 07:00 = 北京 15:00），拿当日收盘价
@@ -46,6 +46,9 @@ jobs:
       - name: scan
         continue-on-error: true
         run: |
+          # 先删掉上一次的产物：万一 python 在进异常处理之前就挂了（比如语法错误），
+          # 兜底也写不出文件，verify 会因为"文件不存在"而失败，而不是拿旧数据蒙混过关
+          rm -f docs/data.json docs/data.js
           echo "=== before ==="
           ls -la
           python scan_cloud.py || echo "scan 返回非 0（已兜底写占位 data.json，不阻断）"
@@ -69,17 +72,18 @@ jobs:
           git config user.name "radar-bot"
           git config user.email "radar-bot@users.noreply.github.com"
           mkdir -p /tmp/keep
-          for f in docs/data.json docs/data.js; do
+          for f in docs/data.json docs/data.js docs/auction.json; do
             [ -f "$f" ] && cp "$f" "/tmp/keep/$(echo $f | tr '/' '_')" || true
           done
           for i in 1 2 3 4 5; do
             git fetch --depth=1 origin main || true
             git reset --hard origin/main || true
-            for f in docs/data.json docs/data.js; do
+            for f in docs/data.json docs/data.js docs/auction.json; do
               b="/tmp/keep/$(echo $f | tr '/' '_')"
               [ -f "$b" ] && cp "$b" "$f" || true
             done
             git add docs/data.json docs/data.js 2>/dev/null || true
+            git add docs/auction.json 2>/dev/null || true
             if git diff --staged --quiet; then
               echo "与远端无差异，无需推送"
               exit 0
