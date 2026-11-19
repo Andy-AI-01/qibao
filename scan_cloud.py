@@ -90,7 +90,41 @@ def universe():
     return out
 
 
-def klines(sym):
+def _secid(sym):
+    """sh600000 -> 1.600000 ; sz000001 -> 0.000001 ; bj830799 -> 0.830799"""
+    s = (sym or "").lower()
+    code = s[2:] if len(s) > 2 else s
+    return ("1." if s.startswith("sh") else "0.") + code
+
+
+EM_HDR = dict(HDR)
+EM_HDR["Referer"] = "https://quote.eastmoney.com/"
+
+
+def _klines_em(sym, tries=2):
+    """东财日线：返回腾讯同构 [[date,o,c,h,l,vol], ...]，vol 单位=手"""
+    u = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s"
+         "&fields1=f1,f2,f3,f4,f5&fields2=f51,f52,f53,f54,f55,f56,f57"
+         "&klt=101&fqt=1&end=20500101&lmt=%d" % (_secid(sym), BARS))
+    for i in range(tries):
+        try:
+            t = urllib.request.urlopen(
+                urllib.request.Request(u, headers=EM_HDR), timeout=20).read().decode("utf-8", "ignore")
+            ks = ((json.loads(t) or {}).get("data") or {}).get("klines") or []
+            out = []
+            for line in ks:
+                p = line.split(",")
+                if len(p) >= 6:
+                    out.append([p[0], float(p[1]), float(p[2]), float(p[3]),
+                                float(p[4]), float(p[5])])
+            if len(out) >= 20:
+                return out
+        except Exception:
+            time.sleep(0.25 * (i + 1))
+    return None
+
+
+def _klines_tx(sym):
     u = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=%s,day,,,%d,qfq" % (sym, BARS)
     t = get(u)
     if not t:
@@ -103,6 +137,14 @@ def klines(sym):
         return d.get("qfqday") or d.get("day") or []
     except Exception:
         return None
+
+
+def klines(sym):
+    """双源交错：代码偶数优先东财、奇数优先腾讯，失败互备。
+    两个源各承担一半压力，单源限流时不至于全灭。"""
+    if sum(ord(ch) for ch in sym) & 1:
+        return _klines_tx(sym) or _klines_em(sym, tries=1)
+    return _klines_em(sym, tries=1) or _klines_tx(sym)
 
 
 def bjnow():
@@ -1603,6 +1645,65 @@ def do_auction(uni=None):
     return out
 
 
+# ---------------- 资讯分级 ----------------
+NEWS_KIND = [
+    ("政策", re.compile(r"(国务院|政治局|国常会|证监会|央行|发改委|工信部|财政部|商务部|"
+                      r"能源局|科技部|药监局|市场监管|部委|印发|出台|试点|批复|"
+                      r"减税|降准|降息|补贴|专项债|行动计划|标准体系|征求意见稿)")),
+    ("国际", re.compile(r"(美联储|美股|纳斯达克|道琼斯|标普|英伟达|特斯拉|苹果|微软|谷歌|"
+                      r"亚马逊|Meta|OpenAI|ChatGPT|GPT|Claude|Gemini|Anthropic|台积电|"
+                      r"三星|阿斯麦|欧盟|日本|美国|关税|出口管制|制裁|OPEC|原油)")),
+    ("公司", re.compile(r"(公告|中标|签订|订单|合同|投产|扩产|量产|获批|回购|增持|定增|"
+                      r"并购|重组|收购|业绩|净利|营收|毛利率|涨价|提价)")),
+    ("行情", re.compile(r"(涨停|跌停|封板|炸板|龙虎榜|成交额|换手|盘中|午后|早盘|收盘|异动)")),
+]
+NEWS_IMP = {"政策": 3, "国际": 2, "公司": 2, "行情": 0, "": 1}
+
+
+def news_index(news, chain):
+    """把每条快讯标上：类别（政策/国际/公司/行情）、命中的产业链题材、重要性
+    只保留「国家 / 企业 / 国际」级别的催化信息，纯行情播报降权到 0。"""
+    trig = []
+    for ch in CHAIN:
+        trig.append((ch["key"], ch["trig"]))
+    chain_keys = set(c.get("key") for c in (chain or []))
+
+    out = []
+    for i, nw in enumerate(news or []):
+        t = (nw.get("t") or "").strip()
+        if not t:
+            continue
+        body = t + " " + (nw.get("s") or "")
+        hit = [k for k, ws in trig if any(w in body for w in ws)]
+        kind = ""
+        for kd, rgx in NEWS_KIND:      # 类别只看标题，摘要里"发布/规划"之类的词太多，会全判成政策
+            if rgx.search(t):
+                kind = kd
+                break
+        imp = NEWS_IMP.get(kind, 1)
+        real_hit = [k for k in hit if k in chain_keys]
+        if real_hit:
+            imp += 2                      # 能落到产业链上，价值最高
+        if kind == "行情" and not real_hit:
+            imp = 0                       # 纯播报且没链条 → 丢掉
+        if imp <= 0:
+            continue
+        out.append({
+            "i": i,
+            "t": t[:90],
+            "s": (nw.get("s") or "")[:70],
+            "tm": nw.get("tm") or "",
+            "url": nw.get("url") or "",
+            "ts": nw.get("ts") or 0,
+            "kind": kind or "其他",
+            "hit": real_hit,
+            "imp": imp,
+        })
+    # 有链条的排前面，再按重要性、再按时间
+    out.sort(key=lambda a: (-(1 if a["hit"] else 0), -a["imp"], -(a["ts"] or 0)))
+    return out
+
+
 # ---------------- 产业链树 ----------------
 # trig: 新闻触发词；links: 环节（stage/part/概念名关键词）
 CHAIN = [
@@ -1867,6 +1968,7 @@ def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=Non
             "news": [{"t": h["nw"].get("t"), "tm": h["nw"].get("tm"), "url": h["nw"].get("url")}
                      for h in hs[:3]],
             "links": links,
+            "trig": [w for w in ch["trig"]][:14],
             "zt": zt_all, "mem": len(allmem),
         })
 
@@ -1874,10 +1976,10 @@ def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=Non
     return out
 
 
-def fetch_news_raw(limit=120, hours=30):
-    """全量快讯（不做政策/题材筛选），专供产业链引擎匹配"""
+def fetch_news_raw(limit=320, hours=48):
+    """全量快讯（不做政策/题材筛选），专供产业链引擎与资讯搜索用"""
     out, seen = [], set()
-    for pg in (1, 2, 3):
+    for pg in range(1, 9):
         u = ("https://news.10jqka.com.cn/tapp/news/push/stock/"
              "?page=%d&tag=&track=website&pagesize=40" % pg)
         try:
@@ -2802,15 +2904,19 @@ def main():
                 print("  scon 需补 %d 只" % len(need), flush=True)
                 scon.update(scon_bulk(need[:500]))
                 save_scon(scon)
-            news_raw = fetch_news_raw(120)
+            news_raw = fetch_news_raw(320)
             chgm = {c: round(float(v.get("chg") or 0), 2) for c, v in (snap or {}).items()}
             chain = chain_scan(news_raw, ctop, scon, list(cparts.values()), ind_map,
                                name_of, chgm, all_mode=True)
+            nindex = news_index(news_raw, chain)
             print("产业链 %d 个题材 / 快讯 %d 条 / 候选 %d 只 / 概念缓存 %d 只"
                   % (len(chain), len(news_raw), len(cparts), len(scon)), flush=True)
+            print("资讯索引 %d 条（能落到产业链 %d 条）"
+                  % (len(nindex), sum(1 for x in nindex if x["hit"])), flush=True)
         except Exception as e:
             print("产业链失败 %s" % e, flush=True)
             chain = []
+            nindex = []
         print("  概念 %d 个" % len(ctop), flush=True)
     except Exception as e:
         ctop = []
@@ -2944,7 +3050,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    boom=rows, risk=risk[:300], history=[],
-                   ladder=ladder, leaders=leaders, cycle=cycle, stage=stage, flow=flow, picks=picks, concept_top=ctop, wordplay=wplay, chain=chain, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, cycle=cycle, stage=stage, flow=flow, picks=picks, concept_top=ctop, wordplay=wplay, chain=chain, news=nindex, ind_top=ind_top, sentiment=sent,
                    ths_blocks=tblk,
                    ths_zt=[dict(code=k, name=v.get("name", ""), reason=v.get("reason", ""),
                                 hd=v.get("hd", ""), seal=v.get("seal", 0),
