@@ -6,7 +6,7 @@
   python scan_cloud.py --auction  # 采集集合竞价（9:15~9:40）
 输出：docs/data.json / docs/data.js / docs/auction.json
 """
-import os, sys, json, time, re, urllib.request, urllib.parse, datetime
+import os, sys, io, json, time, re, urllib.request, urllib.parse, datetime
 from collections import deque, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
@@ -921,6 +921,53 @@ def concept_top(pool_stocks, limit=14):
     return rows[:limit]
 
 
+SCON_PATH = os.path.join(DOCS, "scon.json")
+
+
+def load_scon():
+    """读概念缓存，超过 10 天的丢"""
+    try:
+        d = json.load(io.open(SCON_PATH, encoding="utf-8"))
+    except Exception:
+        return {}
+    keep, now = {}, bjnow()
+    for c, e in (d or {}).items():
+        try:
+            days = (now - datetime.datetime.strptime(e.get("d") or "2000-01-01",
+                                                     "%Y-%m-%d")).days
+        except Exception:
+            days = 99
+        if days <= 10:
+            keep[c] = e
+    return keep
+
+
+def save_scon(d):
+    try:
+        json.dump(d, io.open(SCON_PATH, "w", encoding="utf-8"), ensure_ascii=False)
+        print("  scon 已缓存 %d 只 -> docs/scon.json" % len(d), flush=True)
+    except Exception as e:
+        print("  scon 写入失败 %s" % e, flush=True)
+
+
+def scon_bulk(pairs, workers=8):
+    """pairs: [(code, name)] → {code: {n, cs, d}}"""
+    out, today = {}, bjnow().strftime("%Y-%m-%d")
+
+    def work(p):
+        c, n = p
+        cs = stock_concepts(c)
+        if cs:
+            out[c] = dict(n=n, cs=cs, d=today)
+
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(work, pairs))
+    except Exception as e:
+        print("  scon_bulk 失败 %s" % e, flush=True)
+    return out
+
+
 def industry_map(uni):
     """代码->行业。优先读本地 industry.json（一次抓取永久复用），没有再联网抓"""
     f = os.path.join(DOCS, "industry.json")
@@ -1554,6 +1601,312 @@ def do_auction(uni=None):
     return out
 
 
+# ---------------- 产业链树 ----------------
+# trig: 新闻触发词；links: 环节（stage/part/概念名关键词）
+CHAIN = [
+    {
+        "key": "固态电池",
+        "trig": ["固态电池", "半固态", "凝聚态电池", "硫化物电解质", "干法电极", "锂金属负极"],
+        "links": [
+            {"stage": "上游", "part": "锂资源", "core": 1,
+             "kw": ["小金属", "能源金属", "工业金属", "金属新材料", "锂矿", "盐湖提锂"]},
+            {"stage": "上游", "part": "电解质", "core": 1,
+             "kw": ["化学制品", "化学原料", "电子化学品", "氟化工", "电解液", "固态电池"]},
+            {"stage": "上游", "part": "正负极材料",
+             "kw": ["非金属材料", "金属新材料", "石墨烯"]},
+            {"stage": "中游", "part": "电芯 PACK", "core": 1,
+             "kw": ["电池", "锂电池", "钠离子电池"]},
+            {"stage": "下游", "part": "整车储能",
+             "kw": ["汽车零部件", "汽车整车", "新能源汽车", "储能"]},
+        ],
+    },
+    {
+        "key": "AI算力",
+        "trig": ["算力", "大模型", "推理芯片", "HBM", "CPO", "液冷", "光模块", "智算中心", "英伟达"],
+        "links": [
+            {"stage": "上游", "part": "芯片设计", "core": 1,
+             "kw": ["半导体", "元件", "芯片概念", "国产芯片", "存储芯片", "GPU"]},
+            {"stage": "上游", "part": "光模块/CPO", "core": 1,
+             "kw": ["通信设备", "光学光电子", "CPO", "光模块", "光通信"]},
+            {"stage": "中游", "part": "服务器/液冷", "core": 1,
+             "kw": ["计算机设备", "IT服务", "其他电子", "算力概念", "数据中心", "液冷"]},
+            {"stage": "下游", "part": "IDC/应用",
+             "kw": ["软件开发", "通信服务", "数字媒体", "人工智能", "AI应用", "云计算"]},
+        ],
+    },
+    {
+        "key": "人形机器人",
+        "trig": ["人形机器人", "丝杠", "谐波减速器", "灵巧手", "六维力传感器", "Optimus"],
+        "links": [
+            {"stage": "上游", "part": "丝杠/减速器", "core": 1,
+             "kw": ["通用设备", "专用设备", "工程机械", "减速器", "轴承"]},
+            {"stage": "上游", "part": "电机/传感", "core": 1,
+             "kw": ["电机", "元件", "自动化设备", "传感器", "伺服"]},
+            {"stage": "中游", "part": "本体集成", "core": 1,
+             "kw": ["自动化设备", "机器人概念", "人形机器人"]},
+            {"stage": "下游", "part": "场景应用",
+             "kw": ["软件开发", "IT服务", "人工智能"]},
+        ],
+    },
+    {
+        "key": "低空经济",
+        "trig": ["低空经济", "eVTOL", "飞行汽车", "无人机", "空域管理", "通航"],
+        "links": [
+            {"stage": "上游", "part": "材料/动力",
+             "kw": ["化学制品", "电池", "航空装备", "碳纤维"]},
+            {"stage": "上游", "part": "飞控/导航", "core": 1,
+             "kw": ["军工电子", "通信设备", "航天装备", "卫星导航", "北斗"]},
+            {"stage": "中游", "part": "整机", "core": 1,
+             "kw": ["航空装备", "航天装备", "汽车整车", "低空经济", "无人机"]},
+            {"stage": "下游", "part": "运营空管",
+             "kw": ["航空机场", "物流", "铁路公路", "专业服务"]},
+        ],
+    },
+    {
+        "key": "可控核聚变",
+        "trig": ["可控核聚变", "托卡马克", "高温超导", "聚变", "氘氚", "第一壁"],
+        "links": [
+            {"stage": "上游", "part": "超导材料", "core": 1,
+             "kw": ["金属新材料", "小金属", "特钢", "超导"]},
+            {"stage": "上游", "part": "磁体/部件", "core": 1,
+             "kw": ["电网设备", "电机", "通用设备", "特高压"]},
+            {"stage": "中游", "part": "装置工程",
+             "kw": ["专用设备", "专业工程", "电力", "核电"]},
+            {"stage": "下游", "part": "运营",
+             "kw": ["电力", "绿色电力"]},
+        ],
+    },
+    {
+        "key": "半导体设备",
+        "trig": ["光刻机", "光刻胶", "半导体设备", "国产替代", "晶圆厂", "刻蚀", "先进制程"],
+        "links": [
+            {"stage": "上游", "part": "材料", "core": 1,
+             "kw": ["电子化学品", "非金属材料", "光刻胶", "半导体材料", "靶材"]},
+            {"stage": "上游", "part": "设备", "core": 1,
+             "kw": ["专用设备", "通用设备", "自动化设备", "半导体设备", "工业母机"]},
+            {"stage": "中游", "part": "制造封测", "core": 1,
+             "kw": ["半导体", "元件", "光学光电子", "先进封装", "存储芯片"]},
+            {"stage": "下游", "part": "应用",
+             "kw": ["消费电子", "汽车零部件", "军工电子", "汽车电子"]},
+        ],
+    },
+    {
+        "key": "创新药",
+        "trig": ["创新药", "减肥药", "GLP-1", "ADC", "License", "出海授权", "CRO", "临床试验"],
+        "links": [
+            {"stage": "上游", "part": "原料 CXO", "core": 1,
+             "kw": ["化学制药", "化学原料", "医疗服务", "CRO", "原料药"]},
+            {"stage": "中游", "part": "创新药", "core": 1,
+             "kw": ["化学制药", "生物制品", "中药", "创新药", "减肥药"]},
+            {"stage": "下游", "part": "流通器械",
+             "kw": ["医药商业", "医疗器械", "医疗服务"]},
+        ],
+    },
+    {
+        "key": "稀土永磁",
+        "trig": ["稀土", "永磁", "氧化镨钕", "出口管制", "磁材"],
+        "links": [
+            {"stage": "上游", "part": "稀土矿", "core": 1,
+             "kw": ["小金属", "工业金属", "稀土永磁", "稀缺资源"]},
+            {"stage": "中游", "part": "磁材", "core": 1,
+             "kw": ["金属新材料", "非金属材料", "磁性材料"]},
+            {"stage": "下游", "part": "电机/新能源",
+             "kw": ["电机", "汽车零部件", "风电设备", "光伏设备", "机器人概念"]},
+        ],
+    },
+]
+
+NEWS_MACRO_RE = re.compile(
+    r"(国务院|政治局|中央经济工作会议|工信部|发改委|能源局|科技部|财政部|央行|证监会|"
+    r"国家标准|征求意见稿|补贴|税收优惠|专项债|规划|行动方案|试点|批复)")
+NEWS_NUM_RE = re.compile(r"\d+(\.\d+)?\s*(亿|万|台|座|吨|GW|GWh|MW|%|亿元|万元|万辆)")
+
+
+def _org_level(t):
+    """政策层级：3 中央级 / 2 部委 / 1 地方 / 0 无"""
+    if re.search(r"(国务院|政治局|中央经济工作会议|中央|国家主席|国常会)", t):
+        return 3
+    if NEWS_MACRO_RE.search(t):
+        return 2
+    if re.search(r"(省|市|自治区|地方)政府|地方", t):
+        return 1
+    return 0
+
+
+def _news_num(t):
+    """数字密度：具体量化的给 2"""
+    return 2 if len(NEWS_NUM_RE.findall(t)) >= 1 else 0
+
+
+def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=None, today=None):
+    """news: [{t,s,tag,tm}]  ctop: concept_top[{name,n,max_lb,stocks[]}]"""
+    news = news or []
+    ctop = ctop or []
+
+    # 股票 -> {code,name,lb,chg,cs[]}
+    # ① 先铺概念缓存（覆盖面最广，来自 docs/scon.json）
+    smap = {}
+    for code, e in (scon or {}).items():
+        smap[code] = {"code": code, "name": e.get("n") or code,
+                      "lb": 0, "chg": 0, "cs": list(e.get("cs") or [])}
+    # ② 再用 concept_top 补（缓存没覆盖到的当日涨停股）
+    for c in ctop:
+        cn = c.get("name") or ""
+        for s in (c.get("stocks") or []):
+            code = s.get("c")
+            if not code:
+                continue
+            e = smap.setdefault(code, {"code": code, "name": s.get("n") or code,
+                                       "lb": s.get("lb") or 0, "chg": s.get("chg") or 0,
+                                       "cs": []})
+            if cn and cn not in e["cs"]:
+                e["cs"].append(cn)
+    # ③ 行业名当"概念"参与匹配（industry.json 覆盖 4100 只，稳定性远好于东财概念接口）
+    nm = names or {}
+    cm = chgm or {}
+    for code, ind in (indm or {}).items():
+        if not ind:
+            continue
+        e = smap.get(code)
+        if e is None:
+            e = smap[code] = {"code": code, "name": nm.get(code) or code,
+                              "lb": 0, "chg": 0, "cs": []}
+        else:
+            if e["name"] == code and nm.get(code):
+                e["name"] = nm[code]
+        if ind not in e["cs"]:
+            e["cs"].append(ind)
+        if code in cm:
+            e["chg"] = cm[code]
+    # ④ 用当日候选池补名称/连板/涨幅
+    for x in (cand or []):
+        e = smap.get(x.get("c"))
+        if not e:
+            continue
+        e["name"] = x.get("n") or e["name"]
+        e["lb"] = x.get("lb") or 0
+        e["chg"] = x.get("chg") or 0
+
+    # 新闻 -> 题材
+    hits = {}
+    for nw in news:
+        txt = ((nw.get("t") or "") + " " + (nw.get("s") or "") + " " + (nw.get("tag") or ""))
+        for ch in CHAIN:
+            if any(k in txt for k in ch["trig"]):
+                hits.setdefault(ch["key"], []).append({"nw": nw, "txt": txt})
+
+    out = []
+    for ch in CHAIN:
+        hs = hits.get(ch["key"])
+        if not hs:
+            continue
+
+        used = set()
+        links = []
+        for lk in ch["links"]:
+            mem = []
+            for code, e in smap.items():
+                if code in used:
+                    continue
+                if any(k in cn for cn in e["cs"] for k in lk["kw"]):
+                    mem.append(e)
+                    used.add(code)
+            if not mem:
+                continue
+            mem.sort(key=lambda x: (-(x["lb"] or 0), -(x["chg"] or 0)))
+            zt = sum(1 for x in mem if (x["lb"] or 0) >= 1)
+            # 只展示"今天在动"的票（涨停 或 涨幅≥5%），避免把整个行业 200 只全铺上去
+            act = [x for x in mem if (x["lb"] or 0) >= 1 or (x["chg"] or 0) >= 5]
+            links.append({
+                "stage": lk["stage"], "part": lk["part"],
+                "core": lk.get("core", 0),
+                "n": len(mem), "act": len(act), "zt": zt,
+                "stocks": [{"c": x["code"], "n": x["name"], "lb": x["lb"], "chg": x["chg"],
+                            "cs": x["cs"][:3]} for x in act[:10]],
+            })
+
+        allmem = [x for x in smap.values() if x["code"] in used]
+        zt_all = sum(1 for x in allmem if (x["lb"] or 0) >= 1)
+
+        # 六维硬度
+        joined = " ".join(h["txt"] for h in hs)
+        pol = max([_org_level(h["txt"]) for h in hs] or [0])
+        num = max([_news_num(h["txt"]) for h in hs] or [0])
+        ncnt = len(hs)
+        reso = 3 if ncnt >= 4 else (2 if ncnt == 3 else (1 if ncnt == 2 else 0))
+        chainlen = 2 if len(links) >= 4 else (1 if len(links) == 3 else 0)
+        mkt = 2 if zt_all >= 4 else (1 if zt_all >= 2 else 0)
+        fresh = 1  # 简化：默认 1，接历史新闻后改成真值
+        hard = pol + num + reso + chainlen + mkt + fresh
+
+        # 个股催化等级：涨停/涨幅 + 是否核心环节 + 板块热度
+        for lk in links:
+            core = 1 if lk.get("core") else 0
+            for s in lk["stocks"]:
+                sc = 0
+                if (s["lb"] or 0) >= 1:
+                    sc += 2
+                elif (s["chg"] or 0) >= 5:
+                    sc += 1
+                if core:
+                    sc += 1
+                if lk["zt"] >= 3:
+                    sc += 1
+                s["cat"] = "强催化" if sc >= 4 else ("中催化" if sc >= 2 else "弱催化")
+
+        out.append({
+            "key": ch["key"],
+            "score": hard,
+            "grade": "硬逻辑" if hard >= 9 else ("中等" if hard >= 6 else "弱"),
+            "dim": {"政策": pol, "数字": num, "共振": reso, "链长": chainlen, "市场": mkt, "新鲜": fresh},
+            "news": [{"t": h["nw"].get("t"), "tm": h["nw"].get("tm"), "url": h["nw"].get("url")}
+                     for h in hs[:3]],
+            "links": links,
+            "zt": zt_all, "mem": len(allmem),
+        })
+
+    out.sort(key=lambda x: (-x["score"], -x["zt"], -x["mem"]))
+    return out
+
+
+def fetch_news_raw(limit=120, hours=30):
+    """全量快讯（不做政策/题材筛选），专供产业链引擎匹配"""
+    out, seen = [], set()
+    for pg in (1, 2, 3):
+        u = ("https://news.10jqka.com.cn/tapp/news/push/stock/"
+             "?page=%d&tag=&track=website&pagesize=40" % pg)
+        try:
+            d = json.loads(get(u))
+            lst = (d.get("data") or {}).get("list") or []
+        except Exception:
+            break
+        if not lst:
+            break
+        now = time.time()
+        for it in lst:
+            try:
+                ts = float(it.get("ctime") or 0)
+            except Exception:
+                ts = 0
+            if ts and now - ts > hours * 3600:
+                continue
+            t = (it.get("title") or "").strip()
+            if not t or t in seen or NEWS_BAD.search(t):
+                continue
+            seen.add(t)
+            s2 = (it.get("digest") or it.get("short") or "").strip()
+            tags = [x.get("name", "") for x in (it.get("tags") or [])]
+            try:
+                tm = time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else ""
+            except Exception:
+                tm = ""
+            out.append(dict(t=t, s=s2[:150], tag=tags[0] if tags else "", tm=tm,
+                            url=it.get("url") or "", ts=ts))
+        time.sleep(0.3)
+    out.sort(key=lambda x: -(x.get("ts") or 0))
+    return out[:limit]
+
+
 NEWS_URL = ("https://news.10jqka.com.cn/tapp/news/push/stock/"
             "?page=1&tag=&track=website&pagesize=40")
 NEWS_MACRO = re.compile(r"(证监会|国务院|国常会|政治局|央行|发改委|财政部|工信部|商务部|交易所|金融监管|降准|降息|"
@@ -1840,6 +2193,7 @@ def main():
         err = "行情数据抓取失败（成功 %d/%d），本次结果不可信，请稍后重跑" % (ok_fetch, len(uni))
         print("!! " + err, flush=True)
 
+    name_of = {x["code"]: x.get("name") or x["code"] for x in uni}
     snap = snapshot([("sh" if s["market"] == 1 else "sz") + s["code"] for s in uni])
     up = sum(1 for q in snap.values() if q["chg"] > 0)
     dn = sum(1 for q in snap.values() if q["chg"] < 0)
@@ -2128,6 +2482,35 @@ def main():
                       chg=round(float(x.get("zdp") or 0), 2))
                  for x in list(zt) + list(zb)]
         ctop = concept_top(cpool)
+        try:
+            # 候选池：涨停 + 炸板 + 涨幅≥5%（不再只看涨停，否则链长算不出来）
+            cparts = {}
+            for x in list(zt) + list(zb):
+                c = str(x.get("c") or "")
+                if not c:
+                    continue
+                cparts[c] = dict(c=c, n=x.get("n") or name_of.get(c, c),
+                                 lb=int(x.get("lbc") or 0),
+                                 chg=round(float(x.get("zdp") or 0), 2))
+            for c, v in (snap or {}).items():
+                ch = v.get("chg") or 0
+                if ch >= 5 and c not in cparts:
+                    cparts[c] = dict(c=c, n=name_of.get(c, c), lb=0, chg=round(ch, 2))
+            scon = load_scon()
+            need = [(c, v["n"]) for c, v in cparts.items() if c not in scon]
+            if need:
+                print("  scon 需补 %d 只" % len(need), flush=True)
+                scon.update(scon_bulk(need[:500]))
+                save_scon(scon)
+            news_raw = fetch_news_raw(120)
+            chgm = {c: round(float(v.get("chg") or 0), 2) for c, v in (snap or {}).items()}
+            chain = chain_scan(news_raw, ctop, scon, list(cparts.values()), ind_map,
+                               name_of, chgm)
+            print("产业链 %d 个题材 / 快讯 %d 条 / 候选 %d 只 / 概念缓存 %d 只"
+                  % (len(chain), len(news_raw), len(cparts), len(scon)), flush=True)
+        except Exception as e:
+            print("产业链失败 %s" % e, flush=True)
+            chain = []
         print("  概念 %d 个" % len(ctop), flush=True)
     except Exception as e:
         ctop = []
@@ -2230,7 +2613,7 @@ def main():
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
                    boom=rows, risk=risk[:300], history=[],
-                   ladder=ladder, leaders=leaders, cycle=cycle, stage=stage, flow=flow, picks=picks, concept_top=ctop, wordplay=wplay, ind_top=ind_top, sentiment=sent,
+                   ladder=ladder, leaders=leaders, cycle=cycle, stage=stage, flow=flow, picks=picks, concept_top=ctop, wordplay=wplay, chain=chain, ind_top=ind_top, sentiment=sent,
                    ths_blocks=tblk,
                    ths_zt=[dict(code=k, name=v.get("name", ""), reason=v.get("reason", ""),
                                 hd=v.get("hd", ""), seal=v.get("seal", 0),

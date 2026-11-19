@@ -312,6 +312,42 @@ footer b{color:var(--dim)}
   input[type=search]{width:120px}
 }
 @media (max-width:420px){ th:nth-child(4),td:nth-child(4){display:none} }
+
+/* ===== 产业链引擎 ===== */
+.chaincard{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;
+  background:linear-gradient(180deg,rgba(255,255,255,.022),rgba(255,255,255,.006))}
+.chaincard.hard{border-color:rgba(255,46,99,.55);box-shadow:0 0 0 1px rgba(255,46,99,.18) inset}
+.chhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.chkey{font-size:16px;font-weight:800;color:#fff;letter-spacing:.5px}
+.chscore{font-size:12px;font-weight:700;color:#fbbf24}
+.chgrade{font-size:11px;font-weight:700;padding:1px 7px;border-radius:4px}
+.chgrade.g3{background:rgba(255,46,99,.16);color:#ff5c7a;border:1px solid rgba(255,46,99,.45)}
+.chgrade.g2{background:rgba(251,191,36,.14);color:#fbbf24;border:1px solid rgba(251,191,36,.4)}
+.chgrade.g1{background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}
+.chdim{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}
+.chdim i{font-style:normal;font-size:10px;padding:1px 5px;border-radius:3px;
+  background:rgba(255,255,255,.06);color:#9fb3cc}
+.chdim i b{color:#e2e8f0;font-weight:700}
+.chnews{margin:6px 0 8px;font-size:11.5px;color:#8fa8c8;line-height:1.7}
+.chnews div{padding-left:10px;position:relative}
+.chnews div:before{content:"「";position:absolute;left:0;color:#3f4d61}
+.chnews div:after{content:"」";color:#3f4d61}
+.chlink{display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-top:1px dashed rgba(255,255,255,.06)}
+.chstage{flex:0 0 auto;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;
+  background:rgba(56,189,248,.12);color:#38bdf8;margin-top:1px}
+.chstage.core{background:rgba(255,46,99,.14);color:#ff5c7a}
+.chpart{flex:0 0 96px;font-size:11.5px;color:#c9d6e6;font-weight:600;margin-top:1px}
+.chpart u{text-decoration:none;font-size:9.5px;color:#ff5c7a;margin-left:3px}
+.chstk{flex:1;display:flex;flex-wrap:wrap;gap:4px}
+.chstk span{font-size:10.5px;padding:1px 6px;border-radius:3px;white-space:nowrap;
+  background:rgba(255,255,255,.055);color:#cbd5e1}
+.chstk span.c3{background:rgba(255,46,99,.16);color:#ff6473;font-weight:700}
+.chstk span.c2{background:rgba(251,191,36,.13);color:#fbbf24}
+.chstk b{font-weight:400;color:#7d8ea3;font-size:9.5px;margin-left:2px}
+.chpart b{display:block;font-size:9.5px;font-weight:400;color:#5b6b7f;margin-top:2px}
+.chstk i.chzero{font-style:normal;font-size:10.5px;color:#4a586b}
+.chnote{font-size:11px;color:#7d8ea3;margin-top:8px;line-height:1.7}
+
 </style>
 </head>
 <body>
@@ -357,7 +393,8 @@ footer b{color:var(--dim)}
 </section>
 
 <nav class="topnav" id="topNav">
-  <span class="nv on" data-v="core">核心起爆<b id="nv-core">0</b></span>
+  <span class="nv" data-v="chain">产业链<b id="nv-chain">0</b></span>
+  <span class="nv" data-v="core">核心起爆<b id="nv-core">0</b></span>
   <span class="nv" data-v="boom">全量信号<b id="nv-boom">0</b></span>
   <span class="nv" data-v="lhb">龙虎榜<b id="nv-lhb">0</b></span>
   <span class="nv" data-v="ladder">连板梯队<b id="nv-ladder">0</b></span>
@@ -418,6 +455,16 @@ footer b{color:var(--dim)}
     <div id="tind" class="pane" style="max-height:530px"></div>
     <div id="tlv" class="pane" style="padding:4px 14px 12px;border-left:1px solid var(--line);max-height:530px"></div>
   </div>
+</section>
+
+<section class="box" id="sec-chain" data-nv="chain">
+  <div class="box-h">
+    <h2 style="color:var(--pink,#ff5c7a)">● 产业链催化引擎</h2>
+    <span class="cnt" id="cchain">--</span>
+    <span class="sp"></span>
+    <span class="cnt">快讯 → 题材 → 产业链 → 个股</span>
+  </div>
+  <div id="tchain"></div>
 </section>
 
 <section class="box" id="sec-core" data-nv="core">
@@ -1089,7 +1136,7 @@ function applyNav(v,quiet){
     }
   }catch(e){}
 }
-const NVSET=['core','ladder','ind','flow','pit','lhb','boom','all'];
+const NVSET=['chain','core','ladder','ind','flow','pit','lhb','boom','all'];
 function initNav(){
   const nav=document.getElementById('topNav'); if(!nav) return;
   // 优先级：URL hash（manifest 快捷方式 ./index.html#pit）> localStorage > core
@@ -1107,6 +1154,56 @@ function initNav(){
   });
 }
 initNav();
+
+function renderChain(list){
+  const box=document.getElementById('tchain'), ce=document.getElementById('cchain');
+  if(!box) return;
+  if(!list||!list.length){
+    box.innerHTML='<div class="note">今日快讯没有命中任何产业链题材。引擎只在新闻命中触发词时出结果，'+
+      '宁缺勿滥 —— 这也说明今天没有明确的消息面主线。</div>';
+    if(ce) ce.textContent='今日无命中';
+    return;
+  }
+  const hard=list.filter(x=>x.grade==='硬逻辑').length;
+  const mid=list.filter(x=>x.grade==='中等').length;
+  if(ce) ce.textContent=`${list.length} 个题材 · 硬 ${hard} / 中 ${mid}`;
+  const GH={'硬逻辑':'g3','中等':'g2','弱':'g1'};
+  let html='';
+  list.forEach(c=>{
+    const dim=c.dim||{};
+    const dims=['政策','数字','共振','链长','市场','新鲜']
+      .map(k=>`<i>${k}<b>${dim[k]||0}</b></i>`).join('');
+    const news=(c.news||[]).map(n=>`<div>${esc(n.t||'')}</div>`).join('');
+    const links=(c.links||[]).map(lk=>{
+      const stk=(lk.stocks||[]).map(x=>{
+        const cls=x.cat==='强催化'?'c3':(x.cat==='中催化'?'c2':'');
+        return `<span class="${cls}">${esc(x.n||x.c)}<b>${x.lb?x.lb+'板':''}</b></span>`;
+      }).join('');
+      const act=lk.act||0, tot=lk.n||0;
+      return `<div class="chlink">
+        <span class="chstage ${lk.core?'core':''}">${esc(lk.stage||'')}</span>
+        <span class="chpart">${esc(lk.part||'')}${lk.core?'<u>核心</u>':''}
+          <b>共${tot}只 · 动${act}</b></span>
+        <span class="chstk">${stk||'<i class="chzero">今日无异动</i>'}</span>
+      </div>`;
+    }).join('');
+    html+=`<div class="chaincard ${c.grade==='硬逻辑'?'hard':''}">
+      <div class="chhead">
+        <span class="chkey">${esc(c.key||'')}</span>
+        <span class="chscore">${c.score}/12</span>
+        <span class="chgrade ${GH[c.grade]||'g1'}">${esc(c.grade||'')}</span>
+        <span class="chdim">${dims}</span>
+      </div>
+      ${news?`<div class="chnews">${news}</div>`:''}
+      ${links||'<div class="chnote">该题材今日没有成分股落在产业链环节内（概念数据未覆盖到这只票，明日重跑）</div>'}
+    </div>`;
+  });
+  html+='<div class="chnote">打分：政策层级0-3 · 数字密度0-2 · 新闻共振0-3 · 产业链长度0-2 · 市场确认0-2 · 新鲜度0-2。'+
+    '≥9 硬逻辑（可重仓方向）/ 6-8 中等（做跟随）/ ≤5 弱（一日游，只看不做）。'+
+    '红标=强催化（涨停且在核心环节），黄标=中催化，灰=弱。</div>';
+  box.innerHTML=html;
+}
+
 function renderCore(list){
   const box=document.getElementById('tcore');
   const c=document.getElementById('ccore');
@@ -1571,6 +1668,7 @@ function apply(d){
      ${stxt}
      <span style="color:var(--dim)">${advice}</span>`;
   renderBoom(boom,document.getElementById('qm').value||'');
+  renderChain(d.chain);
   renderCore(DATA.core||[]);
   renderPit(DATA.pits||[]);
   renderLhb(DATA.lhb||[], DATA.lhb_top||[], DATA.lhb_brief||{});
@@ -1579,6 +1677,7 @@ function apply(d){
   setnv('nv-pit',(DATA.pits||[]).length);
   setnv('nv-lhb',(DATA.lhb_top||[]).length);
   setnv('nv-boom',(DATA.boom||[]).length);
+  setnv('nv-chain',(DATA.chain||[]).length);
   loadLhb();
   
   // 修复：连板梯队计数需要统计所有层级

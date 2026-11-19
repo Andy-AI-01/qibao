@@ -1,14 +1,24 @@
 {
+  "id": "/qibao/",
   "name": "起爆点·选股雷达",
   "short_name": "起爆雷达",
-  "description": "全市场起爆体系信号扫描",
+  "description": "全市场起爆体系信号扫描：连板梯队 / 板块催化 / 集合竞价三判 / 跌停坑",
+  "lang": "zh-CN",
+  "dir": "ltr",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait",
   "background_color": "#0b0e13",
   "theme_color": "#0b0e13",
+  "categories": ["finance", "productivity"],
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "今日核心起爆", "short_name": "核心", "url": "./index.html#core" },
+    { "name": "跌停坑", "short_name": "跌停坑", "url": "./index.html#pit" }
   ]
 }
