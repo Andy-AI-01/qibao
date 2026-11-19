@@ -339,6 +339,11 @@ footer b{color:var(--dim)}
 .chpart{flex:0 0 96px;font-size:11.5px;color:#c9d6e6;font-weight:600;margin-top:1px}
 .chpart u{text-decoration:none;font-size:9.5px;color:#ff5c7a;margin-left:3px}
 .chstk{flex:1;display:flex;flex-wrap:wrap;gap:4px}
+.chstk span i{font-style:normal;font-size:10px;margin-left:4px;opacity:.9}
+.chstk span i.up{color:#ff6473}
+.chstk span i.down{color:#2ad48a}
+.chstk u.lead{display:inline-block;font-size:9px;line-height:1.4;padding:0 3px;margin-right:3px;
+  border-radius:3px;background:rgba(255,180,60,.22);color:#ffb43c;text-decoration:none;font-weight:700}
 .chstk span{font-size:10.5px;padding:1px 6px;border-radius:3px;white-space:nowrap;
   background:rgba(255,255,255,.055);color:#cbd5e1}
 .chstk span.c3{background:rgba(255,46,99,.16);color:#ff6473;font-weight:700}
@@ -1239,7 +1244,14 @@ initNav();
   q.addEventListener('focus',function(){ renderNewsDrop(q.value); });
   q.addEventListener('input',function(){
     clearTimeout(t);
-    t=setTimeout(function(){ renderNewsDrop(q.value); },140);
+    const v=q.value||'';
+    t=setTimeout(function(){
+      renderNewsDrop(v);
+      if(!v.trim()){                       // 清空 = 回到「有逻辑的板块推荐」初始页
+        state.chainQ=''; state.newsPick=null;
+        renderChain(DATA.chain||[]);
+      }
+    },140);
   });
   q.addEventListener('keydown',function(e){
     if(e.key==='Escape'){ q.value=''; state.chainQ=''; state.newsPick=null; nd.classList.remove('on'); renderChain(DATA.chain||[]); }
@@ -1310,7 +1322,9 @@ function renderChain(list){
   if(!box) return;
   const rawAll=list||[];
   const raw=rawAll.filter(c=>c.hot!==0);
-  if(c2) c2.textContent = raw.length ? ('快讯 → 题材 → 产业链 → 个股 · 命中 '+raw.length+' 个题材') : '快讯 → 题材 → 产业链 → 个股';
+  if(c2) c2.textContent = raw.length
+    ? ('有逻辑的 '+raw.length+' 个 · 共 '+(list||[]).length+' 个题材｜输入关键词可搜全部')
+    : '快讯 → 题材 → 产业链 → 个股';
   if(!rawAll.length){
     box.innerHTML='<div class="note">今日快讯没有命中任何产业链题材。引擎只在新闻命中触发词时出结果，'+
       '宁缺勿滥 —— 这也说明今天没有明确的消息面主线。</div>';
@@ -1375,9 +1389,16 @@ function renderChain(list){
       .map(k=>`<i>${k}<b>${dim[k]||0}</b></i>`).join('');
     const news=(c.news||[]).map(n=>`<div>${esc(n.t||'')}</div>`).join('');
     const links=(c.links||[]).map(lk=>{
-      const stk=(lk.stocks||[]).map(x=>{
+      const stk=(lk.stocks||[]).map((x,i)=>{
         const cls=x.cat==='强催化'?'c3':(x.cat==='中催化'?'c2':'');
-        return `<span class="${cls}">${esc(x.n||x.c)}<b>${x.lb?x.lb+'板':''}</b></span>`;
+        const v=parseFloat(x.chg)||0;
+        const pct=(v>0?'+':'')+v.toFixed(2)+'%';
+        const pc=v>0?'up':(v<0?'down':'');
+        const lb=parseInt(x.lb||0,10);
+        // 龙头梯队：环节内板数最高的那几只标「龙」
+        const isLead=(i===0 && lb>=2);
+        return `<span class="${cls}">${isLead?'<u class="lead">龙</u>':''}${esc(x.n||x.c)}`
+          +`<i class="${pc}">${pct}</i><b>${lb?lb+'板':''}</b></span>`;
       }).join('');
       const act=lk.act||0, tot=lk.n||0;
       return `<div class="chlink">
