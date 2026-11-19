@@ -1841,6 +1841,118 @@ def _news_num(t):
     return 2 if len(NEWS_NUM_RE.findall(t)) >= 1 else 0
 
 
+
+# ---------------- 动态产业链（覆盖全市场题材） ----------------
+_UP_RE = re.compile(r"(矿|资源|材料|化学|金属|稀土|锂|钴|镍|硅|气体|靶材|原料|电极)")
+_MID_RE = re.compile(r"(设备|制造|元件|机械|半导体|芯片|模组|pack|电池|电机|组件|"
+                     r"零部件|专用设备|通用设备|电子|通信|计算机|光伏|风电|光学|仪器)")
+_DOWN_RE = re.compile(r"(服务|应用|零售|传媒|游戏|影视|医疗|医药|商业|物流|电力|燃气|"
+                      r"环保|工程|建设|汽车|家电|食品|饮料|服装|旅游|银行|证券|保险)")
+
+
+def _stage_of(ind):
+    """按行业名猜上下游（粗糙但够用）"""
+    t = ind or ""
+    if _UP_RE.search(t):
+        return "上游"
+    if _MID_RE.search(t):
+        return "中游"
+    if _DOWN_RE.search(t):
+        return "下游"
+    return "环节"
+
+
+def dyn_chains(news, ctop, tblk, ind_map, name_of, chgm, ind_top=None, min_n=2):
+    """把今天在动的概念/板块 -> 按行业切环节 -> 组成产业链"""
+    news = news or []
+    out, seen_key = [], set()
+
+    pools = [("概念", ctop or []), ("板块", tblk or []), ("行业", ind_top or [])]
+    for src, arr in pools:
+        for c in arr:
+            key = (c.get("name") or "").strip()
+            if not key or key in seen_key or key in ("其他", "综合", "综合Ⅱ"):
+                continue
+            ss = c.get("stocks") or []
+            if len(ss) < min_n:
+                continue
+
+            # 按行业分组 = 环节
+            grp = {}
+            for x in ss:
+                code = str(x.get("c") or "").zfill(6)
+                if not code:
+                    continue
+                ind = (ind_map.get(code) or "其他")
+                e = grp.setdefault(ind, {"stocks": [], "zt": 0})
+                e["stocks"].append({
+                    "c": code,
+                    "n": x.get("n") or name_of.get(code, code),
+                    "lb": int(x.get("lb") or 0),
+                    "chg": round(float(x.get("chg") or chgm.get(code) or 0), 2),
+                })
+                if int(x.get("lb") or 0) >= 1:
+                    e["zt"] += 1
+            if not grp:
+                continue
+
+            links = []
+            for ind, e in sorted(grp.items(), key=lambda kv: (-kv[1]["zt"], -len(kv[1]["stocks"]))):
+                e["stocks"].sort(key=lambda z: (-z["lb"], -z["chg"]))
+                zt = e["zt"]
+                for st in e["stocks"]:
+                    sc = 2 if st["lb"] >= 1 else (1 if st["chg"] >= 5 else 0)
+                    if zt >= 3:
+                        sc += 1
+                    st["cat"] = "强催化" if sc >= 3 else ("中催化" if sc >= 1 else "弱催化")
+                links.append({
+                    "stage": _stage_of(ind),
+                    "part": ind,
+                    "core": 1 if zt >= 2 else 0,
+                    "n": len(e["stocks"]),
+                    "zt": zt,
+                    "act": sum(1 for st in e["stocks"] if st["lb"] >= 1 or st["chg"] >= 5),
+                    "stocks": e["stocks"][:10],
+                })
+
+            links = links[:6]
+            zt_all = sum(lk["zt"] for lk in links)
+            mem = sum(lk["n"] for lk in links)
+
+            # 新闻命中：题材名出现在标题/摘要里
+            hs = []
+            for nw in news:
+                body = (nw.get("t") or "") + " " + (nw.get("s") or "")
+                if key in body:
+                    hs.append(nw)
+
+            pol = max([_org_level((x.get("t") or "") + (x.get("s") or "")) for x in hs] or [0])
+            num = max([_news_num((x.get("t") or "") + (x.get("s") or "")) for x in hs] or [0])
+            ncnt = len(hs)
+            reso = 3 if ncnt >= 4 else (2 if ncnt == 3 else (1 if ncnt == 2 else 0))
+            chainlen = 2 if len(links) >= 4 else (1 if len(links) == 3 else 0)
+            mkt = 2 if zt_all >= 4 else (1 if zt_all >= 2 else 0)
+            hard = min(12, pol + num + reso + chainlen + mkt + 1)
+
+            seen_key.add(key)
+            out.append({
+                "key": key,
+                "src": src,
+                "score": hard,
+                "grade": "硬逻辑" if hard >= 9 else ("中等" if hard >= 6 else "弱"),
+                "dim": {"政策": pol, "数字": num, "共振": reso, "链长": chainlen,
+                        "市场": mkt, "新鲜": 1},
+                "news": [{"t": x.get("t"), "tm": x.get("tm"), "url": x.get("url")} for x in hs[:3]],
+                "links": links,
+                "trig": [key],
+                "zt": zt_all,
+                "mem": mem,
+                "hot": 1 if hs else 0,
+            })
+    out.sort(key=lambda x: (-x["hot"], -x["score"], -x["zt"], -x["mem"]))
+    return out
+
+
 def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=None,
                today=None, all_mode=False):
     """news: [{t,s,tag,tm}]  ctop: concept_top[{name,n,max_lb,stocks[]}]"""
@@ -2747,7 +2859,8 @@ def main():
     leaders = [z for z in graded if z["score"] >= 4][:3]
 
     ind_top = sorted(
-        [dict(name=h, n=e["n"], max_lb=e["max_lb"], cat=e["cat"], names=e["names"])
+        [dict(name=h, n=e["n"], max_lb=e["max_lb"], cat=e["cat"], names=e["names"],
+              stocks=e["stocks"])
          for h, e in ind_stat.items()],
         key=lambda x: (-x["n"], -x["max_lb"]))[:12]
 
@@ -2908,6 +3021,26 @@ def main():
             chgm = {c: round(float(v.get("chg") or 0), 2) for c, v in (snap or {}).items()}
             chain = chain_scan(news_raw, ctop, scon, list(cparts.values()), ind_map,
                                name_of, chgm, all_mode=True)
+            # 动态题材补齐（东财概念 + 同花顺板块 + 全量行业），手写的 8 条优先
+            try:
+                ind_all = {}
+                for cc, vv in cparts.items():
+                    h = ind_map.get(cc) or "其他"
+                    ee = ind_all.setdefault(h, {"name": h, "stocks": []})
+                    ee["stocks"].append(dict(c=cc, n=vv.get("n") or name_of.get(cc, cc),
+                                             lb=int(vv.get("lb") or 0),
+                                             chg=round(float(vv.get("chg") or 0), 2)))
+                dync = dyn_chains(news_raw, ctop, tblk, ind_map, name_of, chgm,
+                                  list(ind_all.values()))
+                have = set(x["key"] for x in chain)
+                extra = [x for x in dync if x["key"] not in have]
+                if extra:
+                    print("  动态题材 +%d 个（%s）"
+                          % (len(extra), "/".join(x["key"] for x in extra[:8])), flush=True)
+                chain = chain + extra
+                chain.sort(key=lambda x: (-(x.get("hot") or 0), -x["score"], -x["zt"], -x["mem"]))
+            except Exception as e:
+                print("动态题材失败 %s" % e, flush=True)
             nindex = news_index(news_raw, chain)
             print("产业链 %d 个题材 / 快讯 %d 条 / 候选 %d 只 / 概念缓存 %d 只"
                   % (len(chain), len(news_raw), len(cparts), len(scon)), flush=True)
