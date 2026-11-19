@@ -346,6 +346,45 @@ footer b{color:var(--dim)}
 .chstk b{font-weight:400;color:#7d8ea3;font-size:9.5px;margin-left:2px}
 .chpart b{display:block;font-size:9.5px;font-weight:400;color:#5b6b7f;margin-top:2px}
 .chstk i.chzero{font-style:normal;font-size:10.5px;color:#4a586b}
+.qin{background:#0e1319;border:1px solid #2a3546;color:#dbe6f5;border-radius:6px;
+  padding:5px 10px;font-size:12px;width:230px;outline:none;font-family:inherit}
+.qin:focus{border-color:#ff5c7a;box-shadow:0 0 0 2px rgba(255,92,122,.15)}
+.qin::placeholder{color:#5d6b80}
+/* 抱团·核心 */
+.grpwrap{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1fr);gap:14px}
+@media (max-width:900px){.grpwrap{grid-template-columns:1fr}}
+.gbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:rgba(255,255,255,.014)}
+.gbox.gbt{border-color:rgba(255,176,32,.35)}
+.gbox.gcr{border-color:rgba(255,92,122,.4)}
+.gbh{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.gbh b{font-size:14px}
+.gmood{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid currentColor}
+.gmood.r{color:#ff6473}.gmood.y{color:#ffb020}.gmood.g{color:#2ad48a}
+.gtip{color:#8fa3bd;font-size:11.5px;line-height:1.7;margin-bottom:10px;
+  border-left:2px solid #2a3546;padding-left:9px}
+.gtl{display:flex;flex-direction:column;gap:7px}
+.gtlrow{display:flex;align-items:center;gap:8px;font-size:12px;padding:5px 8px;
+  border-radius:6px;background:rgba(255,255,255,.02);flex-wrap:wrap}
+.gtlrow.top1{background:rgba(255,92,122,.08);border:1px solid rgba(255,92,122,.25)}
+.glbidx{width:22px;text-align:right;color:#61708a;font-size:11px}
+.glb{min-width:44px;text-align:center;font-weight:700;border-radius:4px;padding:1px 6px;font-size:11px}
+.glb.l4{background:#ff2e63;color:#fff}.glb.l3{background:#ff7a45;color:#fff}
+.glb.l2{background:#ffb020;color:#1a1f27}.glb.l1{background:#3a4556;color:#c6d3e4}
+.glbn{font-weight:600;color:#e8eef7}
+.glbind{color:#8fa3bd;font-size:11px}
+.glbfund{color:#ff8a9b;font-size:11px;margin-left:auto}
+.gcore{display:flex;flex-direction:column;gap:9px}
+.gccard{border:1px solid rgba(255,46,99,.45);border-left:3px solid #ff2e63;
+  border-radius:8px;padding:10px 12px;background:rgba(255,46,99,.05)}
+.gccard.uni{box-shadow:0 0 0 1px rgba(255,46,99,.3),0 0 18px rgba(255,46,99,.12) inset}
+.gchd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.gcnm{font-weight:700;font-size:13.5px;color:#ffe8ee}
+.gccode{color:#7d8ea8;font-size:11px}
+.gcsc{margin-left:auto;font-size:11px;color:#ffb020;font-weight:700}
+.gcmeta{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.gcmeta i{font-style:normal;font-size:10.5px;padding:1px 6px;border-radius:4px;
+  background:rgba(255,255,255,.06);color:#b9c8dc}
+.gcsays{margin-top:7px;font-size:11.5px;color:#9fb3cc;line-height:1.65}
 .chnote{font-size:11px;color:#7d8ea3;margin-top:8px;line-height:1.7}
 
 </style>
@@ -394,6 +433,7 @@ footer b{color:var(--dim)}
 
 <nav class="topnav" id="topNav">
   <span class="nv" data-v="chain">产业链<b id="nv-chain">0</b></span>
+  <span class="nv" data-v="group">抱团·核心<b id="nv-group">0</b></span>
   <span class="nv" data-v="core">核心起爆<b id="nv-core">0</b></span>
   <span class="nv" data-v="boom">全量信号<b id="nv-boom">0</b></span>
   <span class="nv" data-v="lhb">龙虎榜<b id="nv-lhb">0</b></span>
@@ -462,9 +502,20 @@ footer b{color:var(--dim)}
     <h2 style="color:var(--pink,#ff5c7a)">● 产业链催化引擎</h2>
     <span class="cnt" id="cchain">--</span>
     <span class="sp"></span>
-    <span class="cnt">快讯 → 题材 → 产业链 → 个股</span>
+    <span class="cnt" id="cchain2">快讯 → 题材 → 产业链 → 个股</span>
+    <input id="chainq" class="qin" placeholder="搜题材 / 环节 / 股票名 / 代码" autocomplete="off">
   </div>
   <div id="tchain"></div>
+</section>
+
+<section class="box" id="sec-group" data-nv="group">
+  <div class="box-h">
+    <h2 style="color:var(--amber,#ffb020)">● 弱市抱团 · 分歧找核心</h2>
+    <span class="cnt" id="cgroup">--</span>
+    <span class="sp"></span>
+    <span class="cnt">抱团=各板块最高标 · 核心=全市场唯一逆势标的</span>
+  </div>
+  <div id="tgroup"></div>
 </section>
 
 <section class="box" id="sec-core" data-nv="core">
@@ -544,7 +595,7 @@ footer b{color:var(--dim)}
 <script src="data.js"></script>
 <script>
 let DATA=null;
-const state={deptLimit:12,track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}, ladOpen:{}, boomLimit:100};
+const state={deptLimit:12,track:'ALL', sort:'score', indSort:'n', indTab:'blk', fold:{fin:1,fout:1}, ladOpen:{}, boomLimit:100, chainQ:'', groupOpen:{}};
 const EXPDATA={};
 function stockTable(stocks){
   if(!stocks||!stocks.length) return '<div style="padding:8px 12px;color:#5a6779;font-size:12px">今日无个股明细</div>';
@@ -1136,7 +1187,7 @@ function applyNav(v,quiet){
     }
   }catch(e){}
 }
-const NVSET=['chain','core','ladder','ind','flow','pit','lhb','boom','all'];
+const NVSET=['chain','group','core','ladder','ind','flow','pit','lhb','boom','all'];
 function initNav(){
   const nav=document.getElementById('topNav'); if(!nav) return;
   // 优先级：URL hash（manifest 快捷方式 ./index.html#pit）> localStorage > core
@@ -1150,23 +1201,73 @@ function initNav(){
   nav.addEventListener('click',e=>{
     const it=e.target.closest('.nv'); if(!it) return;
     applyNav(it.dataset.v);
-    window.scrollTo({top:0,behavior:'smooth'});
+    // 只回到导航栏本身的位置（导航吸顶后内容紧接其下），不再跳回页面最顶部
+    const y=nav.offsetTop||0;
+    if(Math.abs((window.pageYOffset||0)-y)>60) window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
   });
 }
 initNav();
+// 产业链搜索框
+(function(){
+  const q=document.getElementById('chainq');
+  if(!q) return;
+  let t=null;
+  q.addEventListener('input',function(){
+    clearTimeout(t);
+    t=setTimeout(function(){
+      state.chainQ=q.value||'';
+      renderChain(DATA.chain||[]);
+    },160);
+  });
+  q.addEventListener('keydown',function(e){ if(e.key==='Escape'){ q.value=''; state.chainQ=''; renderChain(DATA.chain||[]); } });
+})();
 
 function renderChain(list){
   const box=document.getElementById('tchain'), ce=document.getElementById('cchain');
+  const c2=document.getElementById('cchain2');
   if(!box) return;
-  if(!list||!list.length){
+  const rawAll=list||[];
+  const raw=rawAll.filter(c=>c.hot!==0);
+  if(c2) c2.textContent = raw.length ? ('快讯 → 题材 → 产业链 → 个股 · 命中 '+raw.length+' 个题材') : '快讯 → 题材 → 产业链 → 个股';
+  if(!rawAll.length){
     box.innerHTML='<div class="note">今日快讯没有命中任何产业链题材。引擎只在新闻命中触发词时出结果，'+
       '宁缺勿滥 —— 这也说明今天没有明确的消息面主线。</div>';
     if(ce) ce.textContent='今日无命中';
     return;
   }
+  // ---- 搜索过滤（搜索时把 8 条链全量纳入） ----
+  const q=(state.chainQ||'').trim().toLowerCase();
+  let stockOnly=0;
+  if(q){
+    const keep=[];
+    for(const c of rawAll){
+      const keyHit=((c.key||'')+' '+(c.grade||'')).toLowerCase().indexOf(q)>=0
+        || (c.news||[]).some(nn=>(nn.t||'').toLowerCase().indexOf(q)>=0)
+        || (c.links||[]).some(lk=>((lk.part||'')+' '+(lk.stage||'')).toLowerCase().indexOf(q)>=0);
+      if(keyHit){ keep.push(c); continue; }
+      // 只命中个股：该题材下只保留命中的票
+      const fl=[];
+      for(const lk of (c.links||[])){
+        const st=(lk.stocks||[]).filter(x=>((x.n||'').toLowerCase().indexOf(q)>=0)||((x.c||'').indexOf(q)>=0));
+        if(st.length) fl.push(Object.assign({},lk,{stocks:st}));
+      }
+      if(fl.length){ keep.push(Object.assign({},c,{links:fl})); stockOnly++; }
+    }
+    if(!keep.length){
+      const kn=rawAll.map(c=>c.key).join(' / ');
+      const pn=rawAll.flatMap(c=>(c.links||[]).map(l=>l.part)).filter((v,i,a)=>a.indexOf(v)===i).slice(0,12).join(' / ');
+      box.innerHTML='<div class="note">没有匹配「'+esc(q)+'」的题材 / 环节 / 个股。<br><br>'+
+        '<b>可以搜的题材：</b>'+esc(kn)+'<br>'+
+        '<b>可以搜的环节：</b>'+esc(pn)+'<br><br>'+
+        '股票名 / 代码也能搜（只覆盖今天落在环节里的票）。</div>';
+      if(ce) ce.textContent='无匹配';
+      return;
+    }
+    list=keep;
+  }
   const hard=list.filter(x=>x.grade==='硬逻辑').length;
   const mid=list.filter(x=>x.grade==='中等').length;
-  if(ce) ce.textContent=`${list.length} 个题材 · 硬 ${hard} / 中 ${mid}`;
+  if(ce) ce.textContent = q ? `匹配 ${list.length} 个题材${stockOnly?('，其中 '+stockOnly+' 个是股票名命中'):''}` : `${list.length} 个题材 · 硬 ${hard} / 中 ${mid}`;
   const GH={'硬逻辑':'g3','中等':'g2','弱':'g1'};
   let html='';
   list.forEach(c=>{
@@ -1202,6 +1303,85 @@ function renderChain(list){
     '≥9 硬逻辑（可重仓方向）/ 6-8 中等（做跟随）/ ≤5 弱（一日游，只看不做）。'+
     '红标=强催化（涨停且在核心环节），黄标=中催化，灰=弱。</div>';
   box.innerHTML=html;
+}
+
+function renderGroup(g){
+  const box=document.getElementById('tgroup'), ce=document.getElementById('cgroup');
+  if(!box) return;
+  const tops=(g&&g.tops)||[], cores=(g&&g.cores)||[];
+  if(!tops.length && !cores.length){
+    box.innerHTML='<div class="empty">今天没有涨停数据，抱团/核心无从判断。</div>';
+    if(ce) ce.textContent='无数据';
+    return;
+  }
+  if(ce) ce.textContent = cores.length ? ('核心 '+cores.length+' 只 · 最高 '+(g.top_lb||0)+' 板') : ('最高 '+(g.top_lb||0)+' 板');
+
+  const tips=((g&&g.tips)||[]).map(t=>`<div>· ${esc(t)}</div>`).join('');
+
+  // 左：抱团 —— 各板块最高标
+  let tl='';
+  tops.forEach((t,i)=>{
+    const lv=Math.min(4,t.lb||1);
+    tl+=`<div class="gtlrow ${i===0?'top1':''}">
+      <span class="glbidx">${String(i+1).padStart(2,'0')}</span>
+      <span class="glb l${lv}">${t.lb}板</span>
+      <span class="glbn">${esc(t.nm||'')}</span>
+      <span class="glbind">${esc(t.ind||'')} · ${t.n}家涨停${t.zbc?(' · 炸'+t.zbc):''}</span>
+      <span class="glbfund">封单 ${t.fund}亿</span>
+    </div>`;
+  });
+
+  // 右：核心 —— 唯一逆势标的
+  let cl='';
+  if(!cores.length){
+    cl='<div class="tip" style="color:#8fa3bd;font-size:12px;line-height:1.8">'+
+       '今天没有出现「天地板 / 地天板反复博弈」的单核标的 —— 分歧还没集中到一只票上。<br>'+
+       '这种情况说明市场还在混沌期，等它自己走出唯一的那个。</div>';
+  }else{
+    cores.forEach(c=>{
+      cl+=`<div class="gccard ${c.uni?'uni':''}">
+        <div class="gchd">
+          ${c.uni?'<span class="sty s1">唯一核心</span>':'<span class="sty s9">备选</span>'}
+          <span class="gcnm">${esc(c.n||'')}</span>
+          <span class="gccode">${c.c}</span>
+          <span class="gcsc">${c.sc}分</span>
+        </div>
+        <div class="gcmeta">
+          <i>5日超额 ${c.rs5>0?'+':''}${c.rs5}%</i>
+          <i>成交额×${c.amt_r}</i>
+          <i>振幅 ${c.amp}%</i>
+          <i>换手 ${c.tov}%</i>
+          <i>跌市 ${c.win}/${c.dn}</i>
+          ${c.ind?`<i>${esc(c.ind)}</i>`:''}
+        </div>
+        <div class="gcsays">${(c.why||[]).map(esc).join(' · ')}</div>
+      </div>`;
+    });
+  }
+
+  box.innerHTML=`<div class="grpwrap">
+    <div class="gbox gbt">
+      <div class="gbh"><b>抱团</b>
+        <span class="gmood ${(g&&g.cls)||''}">${esc((g&&g.mood)||'—')}</span>
+        <span style="color:#7d8ea8;font-size:11px">各板块最高标</span></div>
+      <div class="gtip">${tips}</div>
+      <div class="gtl">${tl||'<div class="gtip">今天没有板块跑出最高标。</div>'}</div>
+    </div>
+    <div class="gbox gcr">
+      <div class="gbh"><b>核心</b>
+        <span class="gmood r">全市场唯一逆势标的</span></div>
+      <div class="gtip">
+        大盘在跌、它天天在涨，而且成交额一路放大——场内的存量钱从别的票抽过来喂它。<br>
+        <b style="color:#ff8a9b">核心不死，老周期就不算终结。</b>它一断板，才是真正的分歧转一致。
+      </div>
+      <div class="gcore">${cl}</div>
+    </div>
+  </div>
+  <div class="chnote" style="margin-top:12px">
+    抱团判定：全市场最高板 + 该板块涨停数占全市场比例 + 炸板率。强抱团＝最高≥4板且占比≥20%。<br>
+    核心打分（满分14）：5日超额≥20%得4 · 成交额放大≥2倍得3 · 日内振幅≥15%得3 · 换手≥20%得2 · 大盘跌的每天都涨得2 · 3日超额≥10%得1。<br>
+    ≥9 分进核心，最高的那只标「唯一核心」。近3日日均成交额 &lt; 3000 万的直接排除（微型票容不下资金，当不了总龙头）。
+  </div>`;
 }
 
 function renderCore(list){
@@ -1669,6 +1849,7 @@ function apply(d){
      <span style="color:var(--dim)">${advice}</span>`;
   renderBoom(boom,document.getElementById('qm').value||'');
   renderChain(d.chain);
+  renderGroup(d.group);
   renderCore(DATA.core||[]);
   renderPit(DATA.pits||[]);
   renderLhb(DATA.lhb||[], DATA.lhb_top||[], DATA.lhb_brief||{});
@@ -1678,6 +1859,7 @@ function apply(d){
   setnv('nv-lhb',(DATA.lhb_top||[]).length);
   setnv('nv-boom',(DATA.boom||[]).length);
   setnv('nv-chain',(DATA.chain||[]).length);
+  setnv('nv-group',((DATA.group&&DATA.group.cores)||[]).length);
   loadLhb();
   
   // 修复：连板梯队计数需要统计所有层级
