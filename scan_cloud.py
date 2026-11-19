@@ -1027,7 +1027,9 @@ def snapshot(syms):
                 raw[fl[2]] = dict(px=float(fl[3]), prev=float(fl[4]), op=float(fl[5]),
                                   vol=float(fl[6]), amt=float(fl[37] or 0) * 1e4,
                                   chg=float(fl[32] or 0),
-                                  tov=float(fl[38] or 0))   # idx38 = 换手率(%)
+                                  tov=float(fl[38] or 0),   # idx38 = 换手率(%)
+                                  hi=float(fl[33] or 0),    # idx33 = 当日最高
+                                  lo=float(fl[34] or 0))    # idx34 = 当日最低
             except Exception:
                 continue
 
@@ -1738,7 +1740,8 @@ def _news_num(t):
     return 2 if len(NEWS_NUM_RE.findall(t)) >= 1 else 0
 
 
-def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=None, today=None):
+def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=None,
+               today=None, all_mode=False):
     """news: [{t,s,tag,tm}]  ctop: concept_top[{name,n,max_lb,stocks[]}]"""
     news = news or []
     ctop = ctop or []
@@ -1798,8 +1801,9 @@ def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=Non
     out = []
     for ch in CHAIN:
         hs = hits.get(ch["key"])
-        if not hs:
+        if not hs and not all_mode:
             continue
+        hs = hs or []
 
         used = set()
         links = []
@@ -1856,6 +1860,7 @@ def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=Non
 
         out.append({
             "key": ch["key"],
+            "hot": 1 if hs else 0,
             "score": hard,
             "grade": "硬逻辑" if hard >= 9 else ("中等" if hard >= 6 else "弱"),
             "dim": {"政策": pol, "数字": num, "共振": reso, "链长": chainlen, "市场": mkt, "新鲜": fresh},
@@ -1865,7 +1870,7 @@ def chain_scan(news, ctop, scon=None, cand=None, indm=None, names=None, chgm=Non
             "zt": zt_all, "mem": len(allmem),
         })
 
-    out.sort(key=lambda x: (-x["score"], -x["zt"], -x["mem"]))
+    out.sort(key=lambda x: (-x["hot"], -x["score"], -x["zt"], -x["mem"]))
     return out
 
 
@@ -2058,6 +2063,301 @@ def premarket():
                 review=review, focus=focus, advice=" ".join(adv),
                 zt=zt_n, max_lb=max_lb, n2=n2,
                 ts=now.strftime("%H:%M"))
+
+
+
+
+# ---------------- 核心：逆势吸金的总龙头 ----------------
+def _cum(seq, k):
+    """近 k 日累计涨幅（seq 是收盘价序列，最后一个是今天）"""
+    if len(seq) < k + 1:
+        return 0.0
+    return seq[-1] / seq[-1 - k] - 1.0
+
+
+def core_scan(cands, snap=None, idx_sym="sh000001", topn=3):
+    """core 的本质：市场跌的时候它涨（逆势）、成交额自己放大（吸走存量资金）、
+    连续多天都在做这件事（持续）。不是振幅大就行 —— 天地板只是它的表现形式。"""
+    cands = cands or []
+    snap = snap or {}
+    if not cands:
+        return []
+    MIN_AMT3 = 0.30e8      # 近3日均额门槛：太小说明是微型票，容不下资金，当不了总龙头
+
+    ib = klines(idx_sym) or []
+    if len(ib) < 12:
+        print("  核心：指数日线不足，跳过", flush=True)
+        return []
+    ic = [float(b[2]) for b in ib]
+    i3, i5 = _cum(ic, 3), _cum(ic, 5)
+
+    def _one(c):
+        try:
+            return c, klines(_sym(c))
+        except Exception:
+            return c, None
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        syms = list(ex.map(_one, cands[:200]))
+
+    out = []
+    for code, bars in syms:
+        if not bars or len(bars) < 13:
+            continue
+        try:
+            c = [float(b[2]) for b in bars]
+        except Exception:
+            continue
+        if c[-1] <= 0 or min(c[-13:]) <= 0:
+            continue
+
+        r3, r5 = _cum(c, 3), _cum(c, 5)
+        rs3 = (r3 - i3) * 100.0
+        rs5 = (r5 - i5) * 100.0
+
+        # 吸金：近 3 日成交额均值 / 前 10 日均值（自身放大＝有场内存量资金调过来）
+        try:
+            amt = [float(b[2]) * float(b[5]) for b in bars[-13:]]
+        except Exception:
+            continue
+        a3 = sum(amt[-3:]) / 3.0
+        a10 = sum(amt[:-3]) / max(1, len(amt) - 3)
+        amt_r = (a3 / a10) if a10 > 0 else 1.0
+
+        # 逆势：大盘跌的那几天，它是不是在涨
+        k = min(len(c), len(ic), 6)
+        dn, win = 0, 0
+        for i in range(1, k):
+            icg = ic[-i] / ic[-i - 1] - 1.0
+            ccg = c[-i] / c[-i - 1] - 1.0
+            if icg < 0:
+                dn += 1
+                if ccg > 0:
+                    win += 1
+
+        if a3 < MIN_AMT3:
+            continue
+
+        # 注意力：当日振幅 + 换手（天地板/地天板就是高换手的极端形态）
+        sp = snap.get(code) or {}
+        px, prev = sp.get("px") or 0, sp.get("prev") or 0
+        hi, lo = sp.get("hi") or 0, sp.get("lo") or 0
+        tov = sp.get("tov") or 0
+        amp = ((hi - lo) / prev) if (hi and lo and prev) else 0.0
+
+        sc = 0.0
+        # ① 逆势（0-5）：5日超额为主，3日辅助
+        if rs5 >= 20:
+            sc += 4
+        elif rs5 >= 12:
+            sc += 3
+        elif rs5 >= 6:
+            sc += 2
+        elif rs5 >= 2:
+            sc += 1
+        if rs3 >= 10:
+            sc += 1
+        # ② 吸金（0-3）：成交额自己放大
+        if amt_r >= 2.0:
+            sc += 3
+        elif amt_r >= 1.5:
+            sc += 2
+        elif amt_r >= 1.2:
+            sc += 1
+        # ③ 注意力（0-5）：振幅 + 换手，全市场都盯着它
+        if amp >= 0.15:
+            sc += 3
+        elif amp >= 0.10:
+            sc += 2
+        elif amp >= 0.07:
+            sc += 1
+        if tov >= 20:
+            sc += 2
+        elif tov >= 12:
+            sc += 1
+        # ④ 持续（0-2）：大盘跌的每一天它都扛住
+        if dn >= 2 and win == dn:
+            sc += 2
+        elif dn >= 2 and win >= dn * 0.6:
+            sc += 1
+
+        if sc < 9:
+            continue
+
+        why = []
+        if rs5 >= 2:
+            why.append("5日跑赢大盘 %.1f%%" % rs5)
+        if amt_r >= 1.2:
+            why.append("成交额放大 %.1f 倍" % amt_r)
+        if amp >= 0.07:
+            why.append("日内振幅 %.0f%%" % (amp * 100))
+        if tov >= 12:
+            why.append("换手 %.0f%%" % tov)
+        if dn >= 1:
+            why.append("大盘跌 %d 天它涨 %d 天" % (dn, win))
+
+        out.append({
+            "c": code, "rs3": round(rs3, 1), "rs5": round(rs5, 1),
+            "amt_r": round(amt_r, 2), "amt3": round(a3 / 1e8, 2),
+            "amp": round(amp * 100, 1), "tov": round(tov, 1),
+            "dn": dn, "win": win,
+            "r5": round(r5 * 100, 1), "sc": round(sc, 1), "why": why,
+            "uni": 0,
+        })
+
+    out.sort(key=lambda a: (-a["sc"], -a["rs3"], -a["amt_r"]))
+    out = out[:topn]
+    if out:
+        # 唯一性：领先第二名 ≥1 分才算「唯一核心」
+        if len(out) == 1 or out[0]["sc"] - out[1]["sc"] >= 1:
+            out[0]["uni"] = 1
+    return out
+
+
+# ---------------- 弱市抱团 · 分歧找核心 ----------------
+def build_group(zt, zb, snap, stage=None, temp=0, max_lb=0, cores=None):
+    """抱团 = 各板块最高标；核心 = 全市场唯一逆势标的（天地板/地天板反复博弈那种）"""
+    zt = zt or []
+    zb = zb or []
+    snap = snap or {}
+
+    # --- 每个行业（板块）取最高标 ---
+    by_ind = {}
+    for x in list(zt) + list(zb):
+        ind = (x.get("hybk") or "未知").strip() or "未知"
+        by_ind.setdefault(ind, []).append(x)
+
+    tops = []
+    for ind, arr in by_ind.items():
+        arr.sort(key=lambda a: (-(int(a.get("lbc") or 1)), -(float(a.get("fund") or 0))))
+        t = arr[0]
+        tops.append({
+            "ind": ind, "n": len(arr),
+            "c": str(t.get("c") or "").zfill(6), "nm": t.get("n") or "",
+            "lb": int(t.get("lbc") or 1),
+            "fund": round(float(t.get("fund") or 0) / 1e8, 2),
+            "zbc": int(t.get("zbc") or 0),
+        })
+    tops.sort(key=lambda a: (-a["lb"], -a["n"], -a["fund"]))
+    top_lb = tops[0]["lb"] if tops else 0
+
+    # 抱团度：最高板那几只票所在板块的涨停数 / 全市场涨停数
+    tot = max(1, len(zt))
+    lead = {}
+    for t in tops:
+        if t["lb"] == top_lb:
+            lead[t["ind"]] = lead.get(t["ind"], 0) + t["n"]
+    conc = round(max(lead.values()) / tot, 3) if lead else 0.0
+    if zb:
+        zb_rate = round(len(zb) / max(1, len(zt) + len(zb)), 3)
+    else:
+        # 炸板池拿不到时，用涨停池里「炸过板」的只数反推
+        zb_rate = round(sum(1 for x in zt if int(x.get("zbc") or 0) > 0) / max(1, len(zt)), 3)
+
+    if top_lb >= 4 and conc >= 0.20:
+        mood, cls = "强抱团 · 空间在打开", "r"
+    elif top_lb >= 3 and conc >= 0.15:
+        mood, cls = "弱抱团 · 资金向最高标集中", "y"
+    elif top_lb >= 3:
+        mood, cls = "有高标 · 无板块效应", "y"
+    elif top_lb <= 2:
+        mood, cls = "无高度 · 混沌期", "g"
+    else:
+        mood, cls = "观察", ""
+
+    tips = []
+    tips.append("全市场最高 %d 板：%s" % (
+        top_lb, "、".join("%s[%s]" % (t["nm"], t["ind"]) for t in tops[:3] if t["lb"] == top_lb) or "—"))
+    tips.append("最高标所在板块涨停 %d / 全市场 %d，抱团度 %.0f%%%s" % (
+        max(lead.values()) if lead else 0, len(zt), conc * 100,
+        "（资金集中，弱市特征）" if conc >= 0.20 else "（发散，各打各的）"))
+    tips.append("炸板率 %.0f%% %s" % (
+        zb_rate * 100, "（分歧大，只做最强）" if zb_rate >= 0.35 else "（承接尚可）"))
+
+    # --- 核心：全市场唯一逆势标的（九阳股份型：天地板/地天板反复博弈） ---
+    cands = []
+    seen = set()
+    for x in list(zt) + list(zb):
+        c = str(x.get("c") or "").zfill(6)
+        if c in seen:
+            continue
+        seen.add(c)
+        sp = snap.get(c) or {}
+        px, prev = sp.get("px") or 0, sp.get("prev") or 0
+        hi, lo = sp.get("hi") or 0, sp.get("lo") or 0
+        if not (px and prev and hi and lo):
+            continue
+        amp = (hi - lo) / prev
+        tov = sp.get("tov") or 0
+        chg = sp.get("chg") or 0
+        lbc = int(x.get("lbc") or 1)
+        zbc = int(x.get("zbc") or 0)
+
+        sc = 0
+        if amp >= 0.15:
+            sc += 4
+        elif amp >= 0.11:
+            sc += 3
+        elif amp >= 0.08:
+            sc += 1
+        if tov >= 20:
+            sc += 3
+        elif tov >= 12:
+            sc += 2
+        elif tov >= 7:
+            sc += 1
+        if zbc >= 2:
+            sc += 2
+        elif zbc == 1:
+            sc += 1
+        if lbc >= 3:
+            sc += 2
+        elif lbc == 2:
+            sc += 1
+        if chg > 0:
+            sc += 1
+
+        if sc < 8:
+            continue
+        why = []
+        if amp >= 0.15:
+            why.append("日内振幅 %.0f%%（天地板级）" % (amp * 100))
+        elif amp >= 0.11:
+            why.append("日内振幅 %.0f%%" % (amp * 100))
+        if tov >= 20:
+            why.append("换手 %.0f%%（巨量换手）" % tov)
+        elif tov >= 12:
+            why.append("换手 %.0f%%" % tov)
+        if zbc >= 1:
+            why.append("炸板 %d 次（反复撬板）" % zbc)
+        if lbc >= 2:
+            why.append("%d 连板" % lbc)
+        cands.append({"c": c, "n": x.get("n") or "", "ind": (x.get("hybk") or "").strip(),
+                      "lb": lbc, "chg": round(chg, 2), "amp": round(amp * 100, 1),
+                      "tov": round(tov, 1), "zbc": zbc, "sc": sc, "why": why})
+
+    if cores:
+        pass                     # 用 core_scan 算出来的真·核心
+    else:
+        cands.sort(key=lambda a: (-a["sc"], -a["amp"], -a["tov"]))
+        cores = cands[:3]
+        for i, cc in enumerate(cores):
+            cc["uni"] = 1 if i == 0 else 0
+
+    if not cores:
+        tips.append("今天没有出现「天地板/地天板反复博弈」的单核标的 —— 分歧还没集中到一只票上")
+    elif len(cores) == 1:
+        tips.append("唯一核心：%s（%s）—— 它不死，老周期就不算结束" % (cores[0]["n"], " · ".join(cores[0]["why"][:2])))
+    else:
+        tips.append("核心候选 %d 只，最硬的是 %s（%s）" % (
+            len(cores), cores[0]["n"], " · ".join(cores[0]["why"][:2])))
+
+    return {
+        "mood": mood, "cls": cls, "tips": tips,
+        "top_lb": top_lb, "tops": tops[:12],
+        "cores": cores, "conc": conc, "zb_rate": zb_rate,
+        "zt": len(zt), "zb": len(zb), "temp": temp, "stage": stage or "",
+    }
 
 
 def build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb):
@@ -2505,7 +2805,7 @@ def main():
             news_raw = fetch_news_raw(120)
             chgm = {c: round(float(v.get("chg") or 0), 2) for c, v in (snap or {}).items()}
             chain = chain_scan(news_raw, ctop, scon, list(cparts.values()), ind_map,
-                               name_of, chgm)
+                               name_of, chgm, all_mode=True)
             print("产业链 %d 个题材 / 快讯 %d 条 / 候选 %d 只 / 概念缓存 %d 只"
                   % (len(chain), len(news_raw), len(cparts), len(scon)), flush=True)
         except Exception as e:
@@ -2606,9 +2906,40 @@ def main():
     except Exception as e:
         print("  盘前解读失败 %s" % e, flush=True)
 
+    # 弱市抱团 · 分歧找核心
+    grp = {}
+    try:
+        # 核心 = 逆势吸金总龙头（只用涨停/炸板/涨幅前排当候选）
+        ccand = []
+        for x in list(zt) + list(zb):
+            cc = str(x.get("c") or "").zfill(6)
+            if cc and cc not in ccand:
+                ccand.append(cc)
+        for c2, v2 in (snap or {}).items():
+            if (v2.get("chg") or 0) >= 5 and c2 not in ccand:
+                ccand.append(c2)
+        cores = core_scan(ccand, snap)
+        for x in cores:
+            for xx in list(zt) + list(zb):
+                if str(xx.get("c") or "").zfill(6) == x["c"]:
+                    x["n"] = xx.get("n") or ""
+                    x["ind"] = (xx.get("hybk") or "").strip()
+                    break
+            x.setdefault("n", "")
+            x.setdefault("ind", "")
+        print("  核心扫描 候选%d 命中%d" % (len(ccand), len(cores)), flush=True)
+
+        grp = build_group(zt, zb, snap, stage,
+                          round(100.0 * up / max(1, up + dn), 1), max_lb, cores)
+        print("  抱团·核心  最高%d板 抱团度%.0f%% 核心%d只"
+              % (grp["top_lb"], grp["conc"] * 100, len(grp["cores"])), flush=True)
+    except Exception as e:
+        print("  抱团·核心失败 %s" % e, flush=True)
+
     payload = dict(updated=bjnow().strftime("%Y-%m-%d %H:%M:%S"),
                    trade_date=trade_date, universe=len(uni),
-                   brief=brief, pre=pre,
+                   brief=brief,
+        group=grp, pre=pre,
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
