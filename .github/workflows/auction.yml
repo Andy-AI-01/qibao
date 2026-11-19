@@ -42,27 +42,29 @@ jobs:
         run: |
           git config user.name "radar-bot"
           git config user.email "radar-bot@users.noreply.github.com"
-          if [ ! -s docs/auction.json ]; then
-            echo "auction.json 未生成，跳过提交"
-            exit 0
-          fi
-          git add docs/auction.json
-          if git diff --staged --quiet; then
-            echo "no change"
-            exit 0
-          fi
+          mkdir -p /tmp/keep
+          for f in docs/auction.json; do
+            [ -f "$f" ] && cp "$f" "/tmp/keep/$(echo $f | tr '/' '_')" || true
+          done
           for i in 1 2 3 4 5; do
             git fetch --depth=1 origin main || true
-            git reset --soft origin/main 2>/dev/null || true
-            git commit -q -m "auction update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')" --allow-empty || true
+            git reset --hard origin/main || true
+            for f in docs/auction.json; do
+              b="/tmp/keep/$(echo $f | tr '/' '_')"
+              [ -f "$b" ] && cp "$b" "$f" || true
+            done
+            git add docs/auction.json 2>/dev/null || true
+            if git diff --staged --quiet; then
+              echo "与远端无差异，无需推送"
+              exit 0
+            fi
+            git commit -q -m "auction update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
             if git push origin HEAD:main; then
               echo "pushed on attempt $i"
               exit 0
             fi
-            echo "push rejected (attempt $i) - 远端有新提交，重新对齐后再试"
+            echo "push rejected (attempt $i) - 重新对齐远端后再试"
             sleep 5
           done
-          echo "::error::git push 连续失败 5 次（远端一直有新提交）"
-          exit 1
-          echo "push failed"
+          echo "::error::git push 连续失败 5 次（远端持续有新提交）"
           exit 1

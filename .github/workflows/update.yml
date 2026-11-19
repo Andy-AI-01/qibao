@@ -4,9 +4,8 @@ on:
   schedule:
     # 盘前一次（UTC 00:40 = 北京 08:40），跑出「盘前解读」
     - cron: '40 0 * * 1-5'
-    # 集合竞价（UTC 01:25 = 北京 09:25），采集竞价三判
-    - cron: '25 1 * * 1-5'
-    # 竞价兜底（UTC 01:30 = 北京 09:30）
+    # 注意：09:25 的竞价采集由 auction.yml 独占（独立 concurrency 组，不会被本工作流挡）
+    # 这里只留 09:30 的兜底：万一 auction.yml 没跑，本工作流的 auction 步骤会补采
     - cron: '30 1 * * 1-5'
     # 盘中每 15 分钟（UTC 01:00-06:45 = 北京 09:00-14:45）
     - cron: '*/15 1-6 * * 1-5'
@@ -69,22 +68,29 @@ jobs:
         run: |
           git config user.name "radar-bot"
           git config user.email "radar-bot@users.noreply.github.com"
-          git add -A
-          git status --short
-          if git diff --staged --quiet; then
-            echo "no change"
-            exit 0
-          fi
+          mkdir -p /tmp/keep
+          for f in docs/data.json docs/data.js; do
+            [ -f "$f" ] && cp "$f" "/tmp/keep/$(echo $f | tr '/' '_')" || true
+          done
           for i in 1 2 3 4 5; do
             git fetch --depth=1 origin main || true
-            git reset --soft origin/main 2>/dev/null || true
-            git commit -q -m "radar update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')" --allow-empty || true
+            git reset --hard origin/main || true
+            for f in docs/data.json docs/data.js; do
+              b="/tmp/keep/$(echo $f | tr '/' '_')"
+              [ -f "$b" ] && cp "$b" "$f" || true
+            done
+            git add docs/data.json docs/data.js 2>/dev/null || true
+            if git diff --staged --quiet; then
+              echo "与远端无差异，无需推送"
+              exit 0
+            fi
+            git commit -q -m "radar update $(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M')"
             if git push origin HEAD:main; then
               echo "pushed on attempt $i"
               exit 0
             fi
-            echo "push rejected (attempt $i) - 远端有新提交，重新对齐后再试"
+            echo "push rejected (attempt $i) - 重新对齐远端后再试"
             sleep 5
           done
-          echo "::error::git push 连续失败 5 次（远端一直有新提交）"
+          echo "::error::git push 连续失败 5 次（远端持续有新提交）"
           exit 1
