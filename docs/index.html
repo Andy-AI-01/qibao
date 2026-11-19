@@ -385,6 +385,30 @@ footer b{color:var(--dim)}
 .gcmeta i{font-style:normal;font-size:10.5px;padding:1px 6px;border-radius:4px;
   background:rgba(255,255,255,.06);color:#b9c8dc}
 .gcsays{margin-top:7px;font-size:11.5px;color:#9fb3cc;line-height:1.65}
+/* 资讯搜索下拉 */
+.nwrap{position:relative;display:inline-block}
+.ndrop{position:absolute;right:0;top:calc(100% + 6px);width:min(560px,86vw);z-index:60;
+  background:#11161f;border:1px solid #2b3547;border-radius:10px;overflow:hidden;
+  box-shadow:0 14px 40px rgba(0,0,0,.6);display:none;max-height:420px;overflow-y:auto}
+.ndrop.on{display:block}
+.nhd{padding:7px 12px;font-size:11px;color:var(--dim);border-bottom:1px solid #222b3a;
+  display:flex;justify-content:space-between;align-items:center}
+.nitem{padding:8px 12px;border-bottom:1px solid #1a2130;cursor:pointer}
+.nitem:last-child{border-bottom:0}
+.nitem:hover{background:rgba(255,255,255,.05)}
+.nitem b{display:block;font-size:12.5px;color:#dfe8f6;font-weight:600;line-height:1.5}
+.nitem i{display:block;font-size:10.5px;color:var(--dim);margin-top:3px;font-style:normal}
+.nitem .nk{display:inline-block;font-size:9.5px;padding:0 4px;border-radius:3px;margin-right:4px}
+.nk.k1{background:rgba(255,180,60,.16);color:#ffb43c}
+.nk.k2{background:rgba(80,160,255,.16);color:#64a8ff}
+.nk.k3{background:rgba(120,220,150,.16);color:#78dc96}
+.nk.k4{background:rgba(255,255,255,.08);color:#9fb3cc}
+.nempty{padding:16px 12px;text-align:center;color:var(--dim);font-size:12px}
+.nlock{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:0 0 10px;
+  background:rgba(255,180,60,.08);border:1px solid rgba(255,180,60,.3);border-radius:8px;
+  font-size:12px;color:#ffcf7a}
+.nlock b{font-weight:600}
+.nlock a{color:#ffb43c;cursor:pointer;text-decoration:underline;margin-left:auto}
 .chnote{font-size:11px;color:#7d8ea3;margin-top:8px;line-height:1.7}
 
 </style>
@@ -503,7 +527,7 @@ footer b{color:var(--dim)}
     <span class="cnt" id="cchain">--</span>
     <span class="sp"></span>
     <span class="cnt" id="cchain2">快讯 → 题材 → 产业链 → 个股</span>
-    <input id="chainq" class="qin" placeholder="搜题材 / 环节 / 股票名 / 代码" autocomplete="off">
+    <div class="nwrap"><input id="chainq" class="qin" autocomplete="off" placeholder="点一下看热点 · 或输入关键词（大模型 / 固态电池 / 稀土）"><div class="ndrop" id="ndrop"></div></div>
   </div>
   <div id="tchain"></div>
 </section>
@@ -1207,20 +1231,78 @@ function initNav(){
   });
 }
 initNav();
-// 产业链搜索框
+// 产业链 / 资讯 搜索
 (function(){
-  const q=document.getElementById('chainq');
-  if(!q) return;
+  const q=document.getElementById('chainq'), nd=document.getElementById('ndrop');
+  if(!q||!nd) return;
   let t=null;
+  q.addEventListener('focus',function(){ renderNewsDrop(q.value); });
   q.addEventListener('input',function(){
     clearTimeout(t);
-    t=setTimeout(function(){
-      state.chainQ=q.value||'';
-      renderChain(DATA.chain||[]);
-    },160);
+    t=setTimeout(function(){ renderNewsDrop(q.value); },140);
   });
-  q.addEventListener('keydown',function(e){ if(e.key==='Escape'){ q.value=''; state.chainQ=''; renderChain(DATA.chain||[]); } });
+  q.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){ q.value=''; state.chainQ=''; state.newsPick=null; nd.classList.remove('on'); renderChain(DATA.chain||[]); }
+    if(e.key==='Enter'){ state.chainQ=q.value||''; state.newsPick=null; nd.classList.remove('on'); renderChain(DATA.chain||[]); }
+  });
+  document.addEventListener('click',function(e){
+    const it=e.target.closest('.nitem[data-ni]');
+    if(it){
+      state.newsPick=parseInt(it.dataset.ni,10);
+      state.chainQ=''; q.value='';
+      nd.classList.remove('on');
+      renderChain(DATA.chain||[]);
+      const sec=document.getElementById('sec-chain');
+      if(sec) window.scrollTo({top:Math.max(0,sec.offsetTop-70),behavior:'smooth'});
+      return;
+    }
+    if(!e.target.closest('.nwrap')) nd.classList.remove('on');
+    if(e.target.closest('[data-nunlock]')){
+      state.newsPick=null; renderChain(DATA.chain||[]);
+    }
+  });
 })();
+
+const NKCLS={'政策':'k1','国际':'k2','公司':'k3','其他':'k4'};
+function renderNewsDrop(q){
+  const nd=document.getElementById('ndrop'); if(!nd) return;
+  const all=DATA.news||[];
+  const qq=(q||'').trim().toLowerCase();
+  let arr, head;
+  if(!qq){
+    arr=all.filter(x=>x.hit&&x.hit.length).slice(0,10);
+    if(!arr.length) arr=all.slice(0,10);
+    head='最近热点 · 点一条看它牵动的产业链';
+  }else{
+    // 先看这个词命中了哪条产业链（含环节名），命中就把该链的资讯一起带出来
+    const hitKeys=(DATA.chain||[]).filter(function(c){
+      const bag=((c.key||'')+' '+(c.trig||[]).join(' ')+' '+(c.links||[]).map(function(l){return (l.part||'')+' '+(l.stage||'');}).join(' ')).toLowerCase();
+      return bag.indexOf(qq)>=0;
+    }).map(function(c){return c.key;});
+    arr=all.filter(function(x){
+      const txt=((x.t||'')+' '+(x.s||'')).toLowerCase();
+      return txt.indexOf(qq)>=0 || (x.hit||[]).some(function(k){return hitKeys.indexOf(k)>=0;});
+    }).slice(0,5);
+    head=arr.length?('命中 '+arr.length+' 条'+(hitKeys.length?(' · 关联 '+hitKeys.join('/')):'')):'';
+  }
+  if(!arr.length){
+    nd.innerHTML='<div class="nempty">没有匹配「'+esc(qq)+'」的资讯<br>'
+      +'<span style="font-size:11px;line-height:1.8">只收国家政策 / 企业公告 / 国际大事件；<br>没有就是没有，不编。</span></div>';
+    nd.classList.add('on'); return;
+  }
+  let h='<div class="nhd"><span>'+esc(head)+'</span>'
+    +'<span style="font-size:10px">国家 · 企业 · 国际</span></div>';
+  arr.forEach(function(x){
+    const kc=NKCLS[x.kind]||'k4';
+    const tags=(x.hit||[]).map(k=>'<span class="nk k4">'+esc(k)+'</span>').join('');
+    h+='<div class="nitem" data-ni="'+x.i+'">'
+      +'<b><span class="nk '+kc+'">'+esc(x.kind||'')+'</span>'+esc(x.t||'')+'</b>'
+      +'<i>'+esc(x.tm||'')+(tags?(' · 牵动 '+tags):' · 未落到产业链')+'</i>'
+      +'</div>';
+  });
+  nd.innerHTML=h;
+  nd.classList.add('on');
+}
 
 function renderChain(list){
   const box=document.getElementById('tchain'), ce=document.getElementById('cchain');
@@ -1234,6 +1316,23 @@ function renderChain(list){
       '宁缺勿滥 —— 这也说明今天没有明确的消息面主线。</div>';
     if(ce) ce.textContent='今日无命中';
     return;
+  }
+  const pick=(state.newsPick!=null)?(DATA.news||[])[state.newsPick]:null;
+  if(pick){
+    const keys=pick.hit||[];
+    const got=rawAll.filter(c=>keys.includes(c.key));
+    const hd='<div class="nlock"><span>锁定资讯：<b>'+esc(pick.t||'')+'</b></span>'
+      +(got.length?(''):'<span style="color:#ff8a9b">（这条没落到产业链）</span>')
+      +'<a data-nunlock="1">取消锁定</a></div>';
+    if(!got.length){
+      box.innerHTML=hd+'<div class="note">这条资讯没有命中任何产业链题材。</div>';
+      if(ce) ce.textContent='未落到产业链';
+      return;
+    }
+    list=got;
+    state._pickHd=hd;
+  }else{
+    state._pickHd='';
   }
   // ---- 搜索过滤（搜索时把 8 条链全量纳入） ----
   const q=(state.chainQ||'').trim().toLowerCase();
@@ -1302,7 +1401,7 @@ function renderChain(list){
   html+='<div class="chnote">打分：政策层级0-3 · 数字密度0-2 · 新闻共振0-3 · 产业链长度0-2 · 市场确认0-2 · 新鲜度0-2。'+
     '≥9 硬逻辑（可重仓方向）/ 6-8 中等（做跟随）/ ≤5 弱（一日游，只看不做）。'+
     '红标=强催化（涨停且在核心环节），黄标=中催化，灰=弱。</div>';
-  box.innerHTML=html;
+  box.innerHTML=(state._pickHd||'')+html;
 }
 
 function renderGroup(g){
