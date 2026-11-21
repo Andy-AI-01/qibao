@@ -2565,7 +2565,7 @@ def core_scan(cands, snap=None, idx_sym="sh000001", topn=3):
         elif dn >= 2 and win >= dn * 0.6:
             sc += 1
 
-        if sc < 9:
+        if sc < 4:          # 只剔掉完全没戏的；弱势日可能全军低分，但要保留下来看 j8 缺在哪
             continue
 
         try:
