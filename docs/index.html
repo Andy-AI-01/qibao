@@ -416,6 +416,23 @@ footer b{color:var(--dim)}
 .nlock a{color:#ffb43c;cursor:pointer;text-decoration:underline;margin-left:auto}
 .chnote{font-size:11px;color:#7d8ea3;margin-top:8px;line-height:1.7}
 
+.regime .trow{flex-basis:100%;width:100%;margin-top:7px;padding-top:7px;
+  border-top:1px dashed rgba(255,255,255,.09);font-size:12.5px;line-height:1.9;
+  display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+tr.dimrow>td{opacity:.38}
+tr.dimrow:hover>td{opacity:.62}
+.j8{margin-top:8px;border-top:1px dashed rgba(255,255,255,.1);padding-top:7px}
+.j8h{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:5px}
+.j8h b{color:var(--amber)}
+.j8h em{font-style:normal;font-weight:700;color:var(--red);font-size:14px}
+.j8h span{margin-left:auto;color:var(--dim);font-size:11.5px}
+.j8r{display:flex;align-items:baseline;gap:6px;font-size:11.5px;line-height:1.85;
+  padding-left:2px;color:var(--dim)}
+.j8r i{font-style:normal;width:11px;text-align:center}
+.j8r b{color:#c3d0e2;font-weight:600;min-width:86px;white-space:nowrap}
+.j8r.on i,.j8r.on b{color:#ff6473}
+.j8r.half i,.j8r.half b{color:var(--amber)}
+.j8r.off{opacity:.55}
 </style>
 </head>
 <body>
@@ -633,16 +650,20 @@ function stockTable(stocks){
         '<table style="font-size:12px"><thead><tr><th>代码</th><th>名称</th>'+
         '<th class="hm">连板</th><th>涨幅</th></tr></thead><tbody>';
   for(const s of arr){
-    h+=`<tr><td style="color:#7b8aa0">${s.c}</td><td>${esc(s.n)}</td>
+    h+=`<tr><td style="color:#7b8aa0">${esc(s.c)}</td><td>${esc(s.n)}</td>
         <td class="hm ${(s.lb||0)>=3?'up':''}">${s.lb?(s.lb+'板'):'首板'}</td>
         <td class="${(s.chg||0)>0?'up':'down'}">${(s.chg||0)>0?'+':''}${(s.chg||0).toFixed(2)}%</td></tr>`;
   }
   return h+'</tbody></table></div>';
 }
 const SORTKEY={score:'score', lbc:'lbc', vol_ratio:'vol_ratio', chg:'chg', amt:'amt', cap:'cap', pos:'pos'};
-function link(code){ const p=(code[0]==='6'||code[0]==='9')?'sh':'sz';
-  return `https://quote.eastmoney.com/${p}${code}.html`; }
-function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function link(code){
+  const c=String(code==null?'':code);
+  if(!/^\d{6}$/.test(c)) return '#';
+  const p=(c[0]==='6'||c[0]==='9')?'sh':'sz';
+  return `https://quote.eastmoney.com/${p}${c}.html`;
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function fmtT(t){ if(!t) return '-'; const s=String(t).padStart(6,'0'); return s.slice(0,2)+':'+s.slice(2,4); }
 
@@ -655,23 +676,23 @@ function renderPick(picks, stage){
   document.getElementById('cpick').innerHTML = good.length
     ? `<span class="pill r">今日可做 ${good.length} 个板块</span>`
     : (cold
-        ? `<span class="pill z">情绪${stage} · 今日空仓，板块强度仅作参考</span>`
+        ? `<span class="pill z">情绪${esc(stage)} · 今日空仓，板块强度仅作参考</span>`
         : `<span class="pill z">今日无推荐板块 · 空仓</span>`);
   let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px">';
   for(const x of picks.slice(0,3)){
     const col=C[x.level]||'#64748b';
     h+=`<div style="border:1px solid ${col}44;background:${col}0d;border-radius:10px;padding:10px 12px">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <span style="background:${col};color:#12161f;font-weight:700;font-size:11.5px;padding:2px 7px;border-radius:5px">${x.level}</span>
+        <span style="background:${col};color:#12161f;font-weight:700;font-size:11.5px;padding:2px 7px;border-radius:5px">${esc(x.level)}</span>
         <span style="margin-left:auto;color:${col};font-weight:700;font-size:15px">${x.score}<span style="font-size:10.5px;opacity:.7">/10</span></span>
       </div>
-      <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--txt)">${x.name}</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px;color:var(--txt)">${esc(x.name)}</div>
       <div style="font-size:11.5px;color:var(--dim);line-height:1.9">
         涨停 <b style="color:${x.zt>=4?'#ff4d5e':'#e6edf3'}">${x.zt}</b> 家 ／ 最高 <b>${x.max_lb}</b> 板 ／
         <b style="color:${x.money>0?'#ff4d5e':'#22c55e'}">${x.money>0?'+':''}${x.money}%</b> 资金<br>
-        ${x.reasons.map(r=>`<span style="display:inline-block;background:rgba(255,255,255,.05);padding:1px 6px;border-radius:4px;margin:2px 3px 0 0">${r}</span>`).join('')}
+        ${x.reasons.map(r=>`<span style="display:inline-block;background:rgba(255,255,255,.05);padding:1px 6px;border-radius:4px;margin:2px 3px 0 0">${esc(r)}</span>`).join('')}
       </div>
-      <div style="margin-top:6px;font-size:11px;color:#5a6779">${(x.names||[]).join('、')}</div>
+      <div style="margin-top:6px;font-size:11px;color:#5a6779">${esc((x.names||[]).join('、'))}</div>
       ${(x.stocks&&x.stocks.length)?`<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">${
         x.stocks.slice(0,6).map(s=>`<span class="sname">${esc(s.n)}<i>${s.lb||1}板</i></span>`).join('')}</div>`:''}
     </div>`;
@@ -689,24 +710,24 @@ function renderCycle(cy, stage){
   let h='';
   h+='<div style="display:flex;gap:2px;margin-bottom:8px">';
   cy.forEach((x,i)=>{
-    h+=`<div title="${x.d}　${x.st}　涨停${x.zt}　跌停${x.dt}　最高${x.lb}板" style="flex:1;height:20px;border-radius:3px;background:${COL[x.st]||'#555'};opacity:${i===n-1?1:0.7}"></div>`;
+    h+=`<div title="${esc(x.d)}　${esc(x.st)}　涨停${x.zt}　跌停${x.dt}　最高${x.lb}板" style="flex:1;height:20px;border-radius:3px;background:${COL[x.st]||'#555'};opacity:${i===n-1?1:0.7}"></div>`;
   });
   h+='</div>';
   h+='<div style="display:flex;gap:2px;align-items:flex-end;height:72px;padding-top:4px">';
   cy.forEach(x=>{
     const hz=Math.max(2,x.zt/maxv*100), hd=Math.max(1,x.dt/maxv*100);
-    h+=`<div title="${x.d} 涨停${x.zt} 跌停${x.dt}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:1px;height:100%">
+    h+=`<div title="${esc(x.d)} 涨停${x.zt} 跌停${x.dt}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:1px;height:100%">
       <div style="height:${hz}%;background:var(--red);border-radius:2px 2px 0 0;opacity:.85"></div>
       <div style="height:${hd}%;background:var(--green);border-radius:2px 2px 0 0;opacity:.65"></div></div>`;
   });
   h+='</div>';
   const L=cy[n-1];
   h+=`<div style="margin-top:10px;color:var(--dim);font-size:12px;line-height:1.8">
-    最新 <b>${L.d}</b>：涨停 <b style="color:var(--red)">${L.zt}</b> ／ 跌停 <b style="color:var(--green)">${L.dt}</b>
+    最新 <b>${esc(L.d)}</b>：涨停 <b style="color:var(--red)">${L.zt}</b> ／ 跌停 <b style="color:var(--green)">${L.dt}</b>
     ／ 最高 <b>${L.lb}</b> 板 ／ 上涨占比 <b>${L.temp}%</b></div>`;
   box.innerHTML=h;
   document.getElementById('cstage').innerHTML=
-    `<span style="color:${COL[stage]||'#8b98ad'};font-weight:700;font-size:13px">当前：${stage||'--'}</span>`;
+    `<span style="color:${COL[stage]||'#8b98ad'};font-weight:700;font-size:13px">当前：${esc(stage||'--')}</span>`;
 }
 
 const KWRE=/(中标|订单|并购|重组|收购|回购|增持|定增|募资|量产|获批|投产|扩产|涨价|提价|净利润|同比增长|扭亏为盈|扭亏|首发|供货|独家供应|全球|国内领先|战略合作|签约|新产品|新品|技术突破|突破|认证|重大|涨停|连板|利好|政策|招标|份额|产能|毛利率|营业收入|营收|同比增|环比增)/g;
@@ -735,7 +756,7 @@ function midHTML(b){
   if(!b||!b.lines||!b.lines.length) return '<div style="color:#5a6779;font-size:12.5px">暂无盘中解读</div>';
   const tc={r:'#ff4d5e',y:'#facc15',g:'#22c55e'}[b.tone]||'#8b98ad';
   let h=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-    <span class="pill" style="background:${tc}22;color:${tc};border:1px solid ${tc}55;font-weight:700">${b.mood||'盘面'}</span>
+    <span class="pill" style="background:${tc}22;color:${tc};border:1px solid ${tc}55;font-weight:700">${esc(b.mood||'盘面')}</span>
     <span style="font-size:11.5px;color:var(--dim)">涨停${b.zt||0} ／ 炸板率${b.rate||0}% ／ 最高${b.max_lb||0}板</span></div>`;
   for(const t of b.lines) h+=`<div style="font-size:12.5px;line-height:1.75;color:#c3cfe0;margin-bottom:3px">· ${esc(t)}</div>`;
   if(b.logic&&b.logic.length){
@@ -820,16 +841,16 @@ function renderFlow(f){
   const m=f.market||{}, r=f.rotation||{};
   const inc=m.trend==='增量';
   document.getElementById('cflow').innerHTML=
-    `<span class="pill ${inc?'r':'z'}">${m.trend||'-'}</span>
+    `<span class="pill ${inc?'r':'z'}">${esc(m.trend||'-')}</span>
      <span style="margin-left:8px">量能 <b>${(m.ratio||1).toFixed(2)}x</b>（相对20日均）
      ${inc?'· 有增量资金进场':'· 存量博弈，快进快出'}</span>`;
   const rotorCol={'主线确立':'#22c55e','独苗主线':'#38bdf8','双线跷跷板':'#facc15',
                   '多点轮动':'#fb923c','电风扇':'#ff4d5e','混沌无主线':'#64748b'};
-  const tops=(r.tops||[]).map(t=>`<span style="display:inline-block;background:rgba(255,255,255,.05);border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px" title="${t.d}　${t.ind||''}　${t.n||0}家涨停"><span style="color:#5a6779">${(t.d||'').slice(5)}</span> ${t.ind||'-'} <b style="color:#8b98ad">${t.n||0}</b></span>`).join('');
+  const tops=(r.tops||[]).map(t=>`<span style="display:inline-block;background:rgba(255,255,255,.05);border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:11px" title="${esc(t.d)}　${esc(t.ind||'')}　${t.n||0}家涨停"><span style="color:#5a6779">${esc((t.d||'').slice(5))}</span> ${esc(t.ind||'-')} <b style="color:#8b98ad">${t.n||0}</b></span>`).join('');
   const tip={'主线确立':'可重仓，拿趋势','独苗主线':'轻仓，只做龙头','双线跷跷板':'跌的买，涨的卖',
              '多点轮动':'做首板，隔日走','电风扇':'只做最强，次日必走','混沌无主线':'空仓'}[r.rotor]||'';
   document.getElementById('crotate').innerHTML=
-    `<div style="text-align:right">轮动：<b style="color:${rotorCol[r.rotor]||'#8b98ad'}">${r.rotor||'-'}</b>
+    `<div style="text-align:right">轮动：<b style="color:${rotorCol[r.rotor]||'#8b98ad'}">${esc(r.rotor||'-')}</b>
      <span style="color:var(--dim)">（近6日换${r.changes||0}次 · 今日第一${r.top_n||0}家）</span>
      ${tip?`<span style="color:${rotorCol[r.rotor]||'#8b98ad'};opacity:.85">· ${tip}</span>`:''}
      <div style="margin-top:4px;max-width:560px">${tops}</div></div>`;
@@ -846,7 +867,7 @@ function renderFlow(f){
     h+='<table><thead><tr><th>行业</th><th>今日占比</th><th class="hm">20日均</th><th>变化</th><th class="hm">连升</th><th class="hm">今日涨停</th></tr></thead><tbody>';
     for(const x of list){
       const stay=x.streak>=3?'<span class="pill r">驻扎</span>':(x.streak>=1?'<span class="pill y">升温</span>':'<span class="pill z">过路</span>');
-      h+=`<tr><td><span class="name">${x.name}</span> ${stay}</td>
+      h+=`<tr><td><span class="name">${esc(x.name)}</span> ${stay}</td>
         <td>${x.share.toFixed(2)}%</td>
         <td class="hm">${x.share20.toFixed(2)}%</td>
         <td class="${x.chg>0?'up':'down'}">${x.chg>0?'+':''}${x.chg.toFixed(0)}%</td>
@@ -873,8 +894,8 @@ function renderLadder(L, leaders){
        '<div style="color:var(--red);font-weight:700;font-size:12.5px;margin-bottom:4px">★ 今日龙头（五维无短板：连板≥3 ／ 0炸板 ／ 10点前封板 ／ 封单≥流通1% ／ 强催化）</div>';
     for(const z of leaders){
       const full = z.score>=6;
-      h+=`<div style="line-height:2"><a href="${link(z.code)}" target="_blank" class="name" style="color:#ffd166">${full?'★★★':'★★'} ${z.name}</a>`+
-         `<span style="color:var(--dim);font-size:11.5px;margin-left:8px">${z.code} · ${z.ind} · ${z.lb}板 · ${fmtT(z.fbt)}封 · 封单${z.fund}亿(占流通${z.seal}%) · ${z.zbc}炸 · 换手${z.hs}% · ${z.bt} · <b style="color:${full?'#ffd166':'#8b98ad'}">${z.score}/6</b>${z.miss&&z.miss.length?(' · 缺:'+z.miss.join('/')):''}</span></div>`;
+      h+=`<div style="line-height:2"><a href="${link(z.code)}" target="_blank" rel="noopener noreferrer" class="name" style="color:#ffd166">${full?'★★★':'★★'} ${esc(z.name)}</a>`+
+         `<span style="color:var(--dim);font-size:11.5px;margin-left:8px">${esc(z.code)} · ${esc(z.ind)} · ${z.lb}板 · ${fmtT(z.fbt)}封 · 封单${z.fund}亿(占流通${z.seal}%) · ${z.zbc}炸 · 换手${z.hs}% · ${esc(z.bt)} · <b style="color:${full?'#ffd166':'#8b98ad'}">${z.score}/6</b>${z.miss&&z.miss.length?(' · 缺:'+esc(z.miss.join('/'))):''}</span></div>`;
     }
     h+='</div>';
   }
@@ -885,11 +906,11 @@ function renderLadder(L, leaders){
     const items = arr.map(z=>{
       const isL=ldr.has(z.code);
       const detail = z.lb>=2
-        ? `<span style="color:#5a6779;font-size:11px;margin:0 14px 0 6px">${z.ind||''} · ${fmtT(z.fbt)}封 · ${z.fund}亿 · ${z.zbc}炸 · 换手${z.hs}% · ${z.bt||''}</span>`
-        : `<span style="color:#5a6779;font-size:11px;margin-right:14px">${z.ind||''}</span>`;
+        ? `<span style="color:#5a6779;font-size:11px;margin:0 14px 0 6px">${esc(z.ind||'')} · ${fmtT(z.fbt)}封 · ${z.fund}亿 · ${z.zbc}炸 · 换手${z.hs}% · ${esc(z.bt||'')}</span>`
+        : `<span style="color:#5a6779;font-size:11px;margin-right:14px">${esc(z.ind||'')}</span>`;
       const nm = isL
-        ? `<a href="${link(z.code)}" target="_blank" class="name" style="color:#ffd166;font-weight:700">★${z.name}</a>`
-        : `<a href="${link(z.code)}" target="_blank" class="name">${z.name}</a>`;
+        ? `<a href="${link(z.code)}" target="_blank" rel="noopener noreferrer" class="name" style="color:#ffd166;font-weight:700">★${esc(z.name)}</a>`
+        : `<a href="${link(z.code)}" target="_blank" rel="noopener noreferrer" class="name">${esc(z.name)}</a>`;
       return `<span style="display:inline-block;white-space:nowrap">${nm}${detail}</span>`;
     });
     const LIM = (k==='1' ? (window.innerWidth<760?8:14) : 12);
@@ -929,11 +950,11 @@ function renderInd(list, sortKey){
     const cls=x.cat==='强催化'?'r':(x.cat==='中催化'?'y':'');
     const key='ip'+idx;
     EXPDATA[key]=x.stocks||[];
-    h+=`<tr class="xr" data-e="${key}"><td><span class="caret">▸</span><span class="name">${x.name}</span></td>
+    h+=`<tr class="xr" data-e="${key}"><td><span class="caret">▸</span><span class="name">${esc(x.name)}</span></td>
       <td class="${x.n>=4?'up':''}">${x.n}</td>
       <td class="hm">${x.max_lb}板</td>
-      <td style="text-align:left">${x.cat?`<span class="pill ${cls}">${x.cat}</span>`:'-'}</td>
-      <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,3).join('、')}</td></tr>`;
+      <td style="text-align:left">${x.cat?`<span class="pill ${cls}">${esc(x.cat)}</span>`:'-'}</td>
+      <td class="hm" style="text-align:left;color:var(--dim)">${esc((x.names||[]).slice(0,3).join('、'))}</td></tr>`;
   });
   box.innerHTML=h+'</tbody></table>';
 
@@ -950,7 +971,7 @@ function renderInd(list, sortKey){
       <span class="lv-num" style="color:${col}">${rows.length}</span>
       <span style="font-size:11.5px;color:var(--dim);line-height:1.6">
         个行业 · 共 ${sum} 家涨停<br>
-        <span style="color:#5a6779">${rule}${rows.length?'｜'+rows.slice(0,3).map(x=>x.name).join('、'):''}</span>
+        <span style="color:#5a6779">${rule}${rows.length?'｜'+esc(rows.slice(0,3).map(x=>x.name).join('、')):''}</span>
       </span></div>`;
   }
   const strong=(g['强催化']||[]).length;
@@ -982,11 +1003,11 @@ function renderConcept(list, sortKey){
     const cls=g==='核心'?'r':(g==='次核心'?'y':'');
     const key='cp'+idx;
     EXPDATA[key]=x.stocks||[];
-    h+=`<tr class="xr" data-e="${key}"><td><span class="caret">▸</span><span class="name">${x.name}</span></td>
+    h+=`<tr class="xr" data-e="${key}"><td><span class="caret">▸</span><span class="name">${esc(x.name)}</span></td>
       <td class="${x.n>=8?'up':''}">${x.n}</td>
       <td class="hm">${x.max_lb}板</td>
       <td style="text-align:left">${g?`<span class="pill ${cls}">${g}</span>`:'-'}</td>
-      <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,3).join('、')}</td></tr>`;
+      <td class="hm" style="text-align:left;color:var(--dim)">${esc((x.names||[]).slice(0,3).join('、'))}</td></tr>`;
   });
   box.innerHTML=h+'</tbody></table>';
 
@@ -1002,12 +1023,12 @@ function renderConcept(list, sortKey){
       <span class="lv-num" style="color:${col}">${rows.length}</span>
       <span style="font-size:11.5px;color:var(--dim);line-height:1.6">
         ${sum} 家次 · 均 ${rows.length?(sum/rows.length).toFixed(1):'0'} 家/概念<br>
-        <span style="color:#5a6779">${rule}${rows.length?'｜'+rows.slice(0,3).map(x=>x.name).join('、'):''}</span>
+        <span style="color:#5a6779">${rule}${rows.length?'｜'+esc(rows.slice(0,3).map(x=>x.name).join('、')):''}</span>
       </span></div>`;
   }
   const core=g['核心']||[];
   v+=`<div style="margin-top:10px;font-size:11.5px;line-height:1.8;color:${core.length?'#ff4d5e':'#5a6779'}">
-    ${core.length? `核心概念：${core.slice(0,3).map(x=>x.name).join('、')}，题材集中度较高`:'概念端无 8 家以上聚合，题材分散'}</div>`;
+    ${core.length? `核心概念：${esc(core.slice(0,3).map(x=>x.name).join('、'))}，题材集中度较高`:'概念端无 8 家以上聚合，题材分散'}</div>`;
   lvbox.innerHTML=v;
   return true;
 }
@@ -1031,12 +1052,12 @@ function renderWordplay(list, sortKey){
     const hot=x.n>=2;
     const ek='wp'+idx;
     EXPDATA[ek]=x.stocks||[];
-    h+=`<tr class="xr" data-e="${ek}"><td><span class="caret">▸</span><span class="name">${x.name}</span></td>
+    h+=`<tr class="xr" data-e="${ek}"><td><span class="caret">▸</span><span class="name">${esc(x.name)}</span></td>
       <td class="${hot?'up':''}">${x.n}</td>
       <td class="hm">${x.max_lb}板</td>
       <td class="hm" style="color:var(--dim)">${x.total}只</td>
       <td class="hm" style="color:${x.pct>=10?'#ff4d5e':'var(--dim)'}">${x.pct}%</td>
-      <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).slice(0,5).join('、')}</td></tr>`;
+      <td class="hm" style="text-align:left;color:var(--dim)">${esc((x.names||[]).slice(0,5).join('、'))}</td></tr>`;
   });
   box.innerHTML=h+'</tbody></table>';
 
@@ -1048,7 +1069,7 @@ function renderWordplay(list, sortKey){
   </div>`;
   if(top){
     v+=`<div style="margin-top:10px;font-size:11.5px;line-height:1.8;color:${top.n>=2?'#ff4d5e':'#5a6779'}">
-      今日最强：<b>${top.name}</b> ${top.n}家涨停（最高${top.max_lb}板，占比${top.pct}%）<br>
+      今日最强：<b>${esc(top.name)}</b> ${top.n}家涨停（最高${top.max_lb}板，占比${top.pct}%）<br>
       <span style="color:#5a6779">${top.n>=2?'同名字辈已形成合力，可留意扩散':'仅单只独苗，暂未成势'}</span></div>`;
   }
   lvbox.innerHTML=v;
@@ -1078,12 +1099,12 @@ function renderThsBlk(list, sortKey){
     const key='bp'+idx;
     EXPDATA[key]=b.stocks||[];
     h+=`<tr class="xr" data-e="${key}">
-      <td><span class="caret">▸</span><b>${b.name}</b></td>
+      <td><span class="caret">▸</span><b>${esc(b.name)}</b></td>
       <td><span class="pill ${cls}">${b.n}</span></td>
       <td class="hm">${b.cont||'-'}</td>
-      <td class="hm ${hi>=4?'up':''}">${b.high||'-'}</td>
+      <td class="hm ${hi>=4?'up':''}">${esc(b.high||'-')}</td>
       <td class="hm">${b.days?b.days+'天':'-'}</td>
-      <td class="hm" style="text-align:left;color:var(--dim)">${(b.names||[]).slice(0,4).join('、')}</td></tr>`;
+      <td class="hm" style="text-align:left;color:var(--dim)">${esc((b.names||[]).slice(0,4).join('、'))}</td></tr>`;
   });
   box.innerHTML=h+'</tbody></table>';
 
@@ -1098,8 +1119,8 @@ function renderThsBlk(list, sortKey){
     const w=Math.round(100*b.n/maxn);
     v+=`<div style="margin-bottom:7px">
       <div style="display:flex;justify-content:space-between;font-size:12px">
-        <span style="color:#e6ebf5">${i+1}. ${b.name}</span>
-        <b style="color:var(--amber)">${b.n}家 · ${b.high||'首板'}</b></div>
+        <span style="color:#e6ebf5">${i+1}. ${esc(b.name)}</span>
+        <b style="color:var(--amber)">${b.n}家 · ${esc(b.high||'首板')}</b></div>
       <div style="height:4px;background:#1b2230;border-radius:2px;margin-top:3px">
         <i style="display:block;height:4px;width:${w}%;border-radius:2px;background:${
           b.n>=10?'#ff4d5e':(b.n>=5?'#f59e0b':'#3b82f6')}"></i></div></div>`;
@@ -1109,7 +1130,7 @@ function renderThsBlk(list, sortKey){
   for(const b of top.slice(0,2)){
     for(const c of (b.codes||[]).slice(0,1)){
       const d=DESC[c];
-      if(d){ v+=`<div class="note"><b style="color:#22d3ee">${b.name}</b>：${esc(d.slice(0,100))}…</div>`; shown++; }
+      if(d){ v+=`<div class="note"><b style="color:#22d3ee">${esc(b.name)}</b>：${esc(d.slice(0,100))}…</div>`; shown++; }
     }
   }
   if(!shown) v+='<div class="note">今日无解读文本</div>';
@@ -1182,14 +1203,14 @@ function coreCard(r,grp){
   const hot=grp.k==='坑'&&!isST;
   return `<div class="corecard${hot?' hot':''}">
     <div class="cc-h">
-      <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
+      <a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${esc(r.code)}</a>
       <b class="cc-name">${esc(r.name||'')}</b>
       <span class="cc-chg ${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</span>
       <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
     </div>
-    <div class="cc-tags">${r.tags.map(t=>`<span class="pill ${(COREGRP.find(g=>g.k===t)||{}).cls||''}${t==='坑'?' hot':''}">${t}</span>`).join(' ')}
+    <div class="cc-tags">${r.tags.map(t=>`<span class="pill ${(COREGRP.find(g=>g.k===t)||{}).cls||''}${t==='坑'?' hot':''}">${esc(t)}</span>`).join(' ')}
       ${zt?`<span class="cc-warn">${zt}</span>`:''}${isST?'<span class="cc-warn">ST</span>':''}</div>
-    <div class="cc-meta">${r.ind||'-'} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'} · 量比${r.vol_ratio.toFixed(2)}${r.hs?' · 换手'+r.hs.toFixed(1)+'%':''}</div>
+    <div class="cc-meta">${esc(r.ind||'-')} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'} · 量比${r.vol_ratio.toFixed(2)}${r.hs?' · 换手'+r.hs.toFixed(1)+'%':''}</div>
     ${r.reason?`<div class="cc-reason why" data-full="${esc(r.desc||r.reason)}" data-nm="${esc(r.name||'')}" title="${esc(r.desc||r.reason)}">${esc(r.reason)}<b class="more">⋯</b></div>`:''}
   </div>`;
 }
@@ -1463,7 +1484,7 @@ function renderGroup(g){
         <div class="gchd">
           ${c.uni?'<span class="sty s1">唯一核心</span>':'<span class="sty s9">备选</span>'}
           <span class="gcnm">${esc(c.n||'')}</span>
-          <span class="gccode">${c.c}</span>
+          <span class="gccode">${esc(c.c)}</span>
           <span class="gcsc">${c.sc}分</span>
         </div>
         <div class="gcmeta">
@@ -1474,6 +1495,14 @@ function renderGroup(g){
           <i>跌市 ${c.win}/${c.dn}</i>
           ${c.ind?`<i>${esc(c.ind)}</i>`:''}
         </div>
+        ${(c.j8i&&c.j8i.length)?`
+        <div class="j8">
+          <div class="j8h"><b>天时·地利·人和</b><em>${c.j8}/8</em>
+            <span>${c.j8>=7?'萝卜坑坐实':(c.j8>=5?'准核心·缺一环':'观察')}</span></div>
+          ${c.j8i.map(x=>`<div class="j8r ${x.ok>=1?'on':(x.ok>=0.5?'half':'off')}">
+            <i class="j8d">${x.ok>=1?'★':(x.ok>=0.5?'☆':'·')}</i>
+            <b>${esc(x.k)}</b><span>${esc(x.v)}</span></div>`).join('')}
+        </div>`:''}
         <div class="gcsays">${(c.why||[]).map(esc).join(' · ')}</div>
       </div>`;
     });
@@ -1482,7 +1511,7 @@ function renderGroup(g){
   box.innerHTML=`<div class="grpwrap">
     <div class="gbox gbt">
       <div class="gbh"><b>抱团</b>
-        <span class="gmood ${(g&&g.cls)||''}">${esc((g&&g.mood)||'—')}</span>
+        <span class="gmood ${esc((g&&g.cls)||'')}">${esc((g&&g.mood)||'—')}</span>
         <span style="color:#7d8ea8;font-size:11px">各板块最高标</span></div>
       <div class="gtip">${tips}</div>
       <div class="gtl">${tl||'<div class="gtip">今天没有板块跑出最高标。</div>'}</div>
@@ -1530,7 +1559,7 @@ function renderCore(list){
     const LIM=6, open=state.coreOpen[k];
     const show=open?arr:arr.slice(0,LIM);
     h+=`<div class="coregrp"><div class="cg-h">
-        <span class="pill ${grp.g.cls}${k==='坑'?' hot':''}">${k}</span>
+        <span class="pill ${esc(grp.g.cls||'')}${k==='坑'?' hot':''}">${esc(k)}</span>
         <b>${arr.length} 只</b><span class="cg-w">${esc(grp.g.w)}</span>
         ${arr.length>LIM?`<span class="cg-more" data-ck="${k}">${open?'收起 ▴':('还有 '+(arr.length-LIM)+' 只 ▾')}</span>`:''}
       </div>
@@ -1573,18 +1602,18 @@ function renderPit(list){
     const zt=(r.chg<=-9.5)?'跌停':(r.chg<=-5?'大跌':'');
     h+=`<div class="pitcard">
       <div class="cc-h">
-        <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
-        <b class="cc-name">${r.name}</b>
+        <a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${esc(r.code)}</a>
+        <b class="cc-name">${esc(r.name||'')}</b>
         <span class="cc-chg down">${r.chg.toFixed(2)}%</span>
         <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
       </div>
       <div class="cc-tags">
         ${zt?`<span class="pill m">${zt}</span>`:''}
-        ${r.tags.filter(t=>t!=='坑').map(t=>`<span class="pill g">${t}</span>`).join(' ')}
+        ${r.tags.filter(t=>t!=='坑').map(t=>`<span class="pill g">${esc(t)}</span>`).join(' ')}
         ${r.hs?`<span class="pit-hs">换手 ${r.hs.toFixed(1)}%</span>`:''}
         <span class="pit-hs">量比 ${r.vol_ratio.toFixed(2)}</span>
       </div>
-      <div class="cc-meta">${r.ind||'-'} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'}</div>
+      <div class="cc-meta">${esc(r.ind||'-')} · ${r.close.toFixed(2)} 元 · 位置${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'}</div>
       ${r.reason?`<div class="cc-reason why" data-full="${esc(r.desc||r.reason)}" data-nm="${esc(r.name||'')}" title="${esc(r.desc||r.reason)}">${esc(r.reason)}<b class="more">⋯</b></div>`:''}
     </div>`;
   }
@@ -1640,7 +1669,7 @@ function renderLhb(list, top, brief){
   }
   let h='';
   if(brief&&brief.line){
-    h+=`<div class="lhbstat ${brief.tone||'y'}">
+    h+=`<div class="lhbstat ${esc(brief.tone||'y')}">
       <b>${esc(brief.mood||'')}</b>
       <span>${esc(brief.line)}</span>
     </div>`;
@@ -1669,7 +1698,7 @@ function renderLhb(list, top, brief){
   for(const x of (top||[])){ const g=lhbGroup(x); (gmap[g]=gmap[g]||[]).push(x); }
   for(const g of GROUPS){
     const arr=gmap[g]; if(!arr||!arr.length) continue;
-    h+=`<div class="lhbgrp"><span class="pill ${g==='游资抢筹'?'m':(g==='龙虎净卖'?'g':'y')}">${g}</span>
+    h+=`<div class="lhbgrp"><span class="pill ${g==='游资抢筹'?'m':(g==='龙虎净卖'?'g':'y')}">${esc(g)}</span>
       <span class="lhbw">${LHBW[g]||''}</span><span class="lhbct">${arr.length} 只</span></div>`;
     h+=lhbTable(arr, 12);
   }
@@ -1706,7 +1735,7 @@ function deptRank(list){
           ${d.style?`<u class="sty ${STYCLS[d.style]||''}">${esc(d.style)}</u>`:''}
         </div>
         <div class="dline2">${
-          d.items.map(x=>`<span class="di ${x.s==='买'?'b':'s'}">${x.s} ${esc(x.n)} ${(x.amt/1e4).toFixed(2)}亿</span>`).join('')
+          d.items.map(x=>`<span class="di ${x.s==='买'?'b':'s'}">${esc(x.s)} ${esc(x.n)} ${(x.amt/1e4).toFixed(2)}亿</span>`).join('')
         }</div>
       </div>
       <span class="dnet ${up?'up':'down'}">${up?'+':''}${(d.net/1e4).toFixed(2)}亿</span>
@@ -1726,7 +1755,7 @@ function lhbTable(arr, cap){
     const nc=x.net>=0?'up':'down';
     const rc=x.nrat>=15?'nrat-hi':(x.nrat>=8?'nrat-mid':(x.nrat<0?'nrat-lo':''));
     t+=`<tr>
-      <td><a class="code" href="${link(x.c)}" target="_blank">${x.c}</a></td>
+      <td><a class="code" href="${link(x.c)}" target="_blank" rel="noopener noreferrer">${esc(x.c)}</a></td>
       <td class="nm">${esc(x.n)}</td>
       <td class="r ${x.chg>=0?'up':'down'}">${x.chg>=0?'+':''}${x.chg.toFixed(2)}%</td>
       <td class="r ${nc}">${x.net>=0?'+':''}${x.net.toFixed(0)}</td>
@@ -1738,7 +1767,7 @@ function lhbTable(arr, cap){
           ${x.hm_style?`<u class="sty ${STYCLS[x.hm_style]||''}">${esc(x.hm_style)}</u>`:''}
         </div>
       </td>
-      <td class="dimx">${x.why}${x.rate?` <span class="lhbw">成${x.rate}%</span>`:''}</td>
+      <td class="dimx">${esc(x.why)}${x.rate?` <span class="lhbw">成${x.rate}%</span>`:''}</td>
       <td class="r ${x.hs>=20?'down':''}">${x.hs.toFixed(1)}%</td>
     </tr>`;
   }
@@ -1749,7 +1778,11 @@ function renderBoom(rows,q){
   const box=document.getElementById('tboom');
   let rr=rows.filter(x=>!q||x.code.includes(q)||x.name.includes(q));
   if(state.track!=='ALL') rr=rr.filter(x=>x.track===state.track);
+  const ZONE=(DATA.trend||{}).zone||'';
+  const WEAK=(ZONE==='危险区'||ZONE==='阴跌区');
+  const _rank=x=>x.tags.indexOf('坑')>=0?0:(x.tags.indexOf('横盘突破')>=0?2:1);
   rr=rr.slice().sort((a,b)=>{
+    if(WEAK){ const d=_rank(a)-_rank(b); if(d) return d; }
     const va=a[SORTKEY[state.sort]]||0, vb=b[SORTKEY[state.sort]]||0;
     return vb-va;
   });
@@ -1769,20 +1802,21 @@ function renderBoom(rows,q){
   const displayRows = rr.slice(0, LIMIT);
 
   for(const r of displayRows){
-    const pills=r.tags.map(t=>`<span class="pill ${CL[t]||''}${t==='坑'?' hot':''}">${t}</span>`).join(' ');
+    const pills=r.tags.map(t=>`<span class="pill ${CL[t]||''}${t==='坑'?' hot':''}">${esc(t)}</span>`).join(' ');
     const ccls=r.cat==='强催化'?'r':(r.cat==='中催化'?'y':'');
     const tr = r.track==='T'? '<span class="pill r" title="大市值高位·趋势档">趋</span>'
              : r.track==='Y'? '<span class="pill m" title="小市值低价低位·妖股档">妖</span>' : '';
-    h+=`<tr>
-      <td><a class="code" href="${link(r.code)}" target="_blank">${r.code}</a></td>
+    const _dim = WEAK && r.tags.indexOf('横盘突破')>=0 ? ' class="dimrow"' : '';
+    h+=`<tr${_dim}>
+      <td><a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${esc(r.code)}</a></td>
       <td><span class="name">${tr}${esc(r.name||'')}</span></td>
-      <td class="hm" style="text-align:left;color:var(--dim)">${r.ind||'-'}</td>
-      <td class="hm ${(r.lbc||0)>=3?'up':''}">${r.lbc? r.lbc+'板' : (r.ztj||'-')}</td>
+      <td class="hm" style="text-align:left;color:var(--dim)">${esc(r.ind||'-')}</td>
+      <td class="hm ${(r.lbc||0)>=3?'up':''}">${r.lbc? r.lbc+'板' : esc(r.ztj||'-')}</td>
       <td class="hm">${r.close.toFixed(2)}</td>
       <td class="${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</td>
       <td style="text-align:left">${pills}</td>
       <td style="text-align:left">${r.reason?`<span class="why" data-full="${esc(r.desc||r.reason)}" data-nm="${esc(r.name||'')}" title="${esc(r.desc||r.reason)}">${esc(r.reason)}<b class="more">⋯</b></span>`:'<span style="color:var(--dim)">-</span>'}</td>
-      <td class="hm" style="text-align:left">${r.cat?`<span class="pill ${ccls}">${r.cat}</span>`:'-'}</td>
+      <td class="hm" style="text-align:left">${r.cat?`<span class="pill ${ccls}">${esc(r.cat)}</span>`:'-'}</td>
       <td class="hm">${r.cap?r.cap.toFixed(0)+'亿':'-'}</td>
       <td class="hm ${r.pos>=70?'up':(r.pos<=30?'down':'')}">${r.pos!==undefined?r.pos.toFixed(0)+'%':'-'}</td>
       <td class="hm">${r.vol_ratio.toFixed(2)}</td>
@@ -1824,12 +1858,12 @@ function renderAuction(a){
   const v=a.verdict, IT=a.items||[];
   setc(v?(v.level+' '+v.score+'/'+(v.max||8)):(IT.length?IT.length+' 只':'待采集'));
   if(tEl) tEl.textContent=a.valid?('已采 '+(a.time||'').slice(0,5)):'9:25 自动';
-  const meta='<div class="aumeta">'+(a.date||'')+' '+(a.time||'')+
+  const meta='<div class="aumeta">'+esc(a.date||'')+' '+esc(a.time||'')+
     (a.message?(' · <i>'+esc(a.message)+'</i>'):'')+
     (a.src?(' · <i>源:'+esc(a.src)+'</i>'):'')+
     (a.prev_snapshot?(' · <i>基准日 '+esc(a.prev_snapshot)+'</i>'):'')+'</div>';
   if(!IT.length){
-    box.innerHTML=meta+'<div class="auempty"><b>'+auHuman(a.message)+'</b>'+
+     box.innerHTML=meta+'<div class="auempty"><b>'+esc(auHuman(a.message))+'</b>'+
       '<span>'+(a.src?('数据源：'+esc(a.src)+'<br>'):'')+
       '每个交易日 9:25 自动采集；下一交易日重试</span></div>';
     return;
@@ -1844,9 +1878,9 @@ function renderAuction(a){
   if(v){
     const col=v.cls==='r'?'#ff4d5e':(v.cls==='y'?'#ffc451':'#22c98a');
     h+=`<div class="auhead" style="border-color:${col}33">
-      <span class="aulevel" style="color:${col};border-color:${col}55">${v.level}</span>
+      <span class="aulevel" style="color:${col};border-color:${col}55">${esc(v.level)}</span>
       <b style="color:${col}">${v.score}/${v.max||8}</b>
-      <span class="auidx">${(a.idx||[]).map(i=>`<em style="font-style:normal;margin-right:8px">${i.name}<b class="${i.pct>0?'up':'down'}">${i.pct>0?'+':''}${i.pct}%</b></em>`).join('')}</span>
+      <span class="auidx">${(a.idx||[]).map(i=>`<em style="font-style:normal;margin-right:8px">${esc(i.name)}<b class="${i.pct>0?'up':'down'}">${i.pct>0?'+':''}${i.pct}%</b></em>`).join('')}</span>
     </div>
     <div class="aureasons">${(v.reasons||[]).map(r=>`<div>· ${esc(r)}</div>`).join('')}</div>`;
   }
@@ -1854,13 +1888,13 @@ function renderAuction(a){
     h+='<div class="ausub">空间龙（量价是否延续昨日强势）</div>';
     a.dragons.forEach(d=>{
       h+=`<div class="audragon">
-        <a class="code" href="${link(d.code)}" target="_blank">${d.code}</a>
+        <a class="code" href="${link(d.code)}" target="_blank" rel="noopener noreferrer">${esc(d.code)}</a>
         <span class="name">${esc(d.name)}</span>
         <span class="pill w">${d.lb}板</span>
         <span class="${d.pct>0?'up':'down'}" style="font-weight:700">${d.pct>0?'+':''}${d.pct}%</span>
         <span class="hm">占昨额 ${d.ar}%</span>
         <span class="hm">封单 ${d.seal}亿</span>
-        <span class="pill ${d.cls}">${esc(d.verdict)}</span>
+        <span class="pill ${esc(d.cls)}">${esc(d.verdict)}</span>
       </div>`;
     });
   }
@@ -1870,20 +1904,20 @@ function renderAuction(a){
        '<th class="hm">高开≥3%</th><th class="hm">竞价额占昨额</th><th style="text-align:left">判定</th>'+
        '<th class="hm" style="text-align:left">成分</th></tr></thead><tbody>';
     a.ladder.forEach(x=>{
-      h+=`<tr><td><span class="pill ${x.cls}">${x.lb}</span></td>
+      h+=`<tr><td><span class="pill ${esc(x.cls)}">${x.lb}</span></td>
         <td class="hm">${x.n}</td>
         <td class="${x.avg_pct>0?'up':'down'}">${x.avg_pct>0?'+':''}${x.avg_pct}%</td>
         <td class="hm">${x.hi3} 只（${Math.round(x.ratio3*100)}%）</td>
         <td class="hm">${x.avg_ar}%</td>
         <td style="text-align:left">${esc(x.verdict)}</td>
-        <td class="hm" style="text-align:left;color:var(--dim)">${(x.names||[]).join('、')}</td></tr>`;
+        <td class="hm" style="text-align:left;color:var(--dim)">${esc((x.names||[]).join('、'))}</td></tr>`;
     });
     h+='</tbody></table>';
   }
   if(a.follow){
     const f=a.follow;
     h+=`<div class="ausub">跟风梯队（昨日首板今日竞价）</div>
-      <div class="aufollow"><span class="pill ${f.cls}">${esc(f.verdict)}</span>
+      <div class="aufollow"><span class="pill ${esc(f.cls)}">${esc(f.verdict)}</span>
       <span class="hm">${f.n} 只</span>
       <span>平均高开 <b class="${f.avg_pct>0?'up':'down'}">${f.avg_pct>0?'+':''}${f.avg_pct}%</b></span>
       <span class="hm">高开≥2% ${f.hi2} 只（${Math.round(f.ratio2*100)}%）</span>
@@ -1896,7 +1930,7 @@ function renderAuction(a){
   IT.slice(0,60).forEach(r=>{
     const [t,c]=pick(r.pct,r.ar);
     h+=`<tr>
-      <td><a class="code" href="${link(r.code)}" target="_blank">${r.code}</a></td>
+      <td><a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${esc(r.code)}</a></td>
       <td><span class="name">${esc(r.name)}</span></td>
       <td class="hm">${r.lb>=2?`<span class="pill r">${r.lb}板</span>`:'首板'}</td>
       <td>${r.op.toFixed(2)}</td>
@@ -1917,9 +1951,9 @@ function drawBars(hist){
   sec.style.display='';
   const max=Math.max(1,...hist.map(x=>x.b));
   document.getElementById('bars').innerHTML=hist.map(x=>
-    `<div class="b" title="${x.d} ${x.b} 个"><i style="height:${x.b/max*100}%"></i></div>`).join('');
+    `<div class="b" title="${esc(x.d)} ${x.b} 个"><i style="height:${x.b/max*100}%"></i></div>`).join('');
   document.getElementById('barsx').innerHTML=hist.map((x,i)=>
-    `<span>${(i%5===0)?x.d.slice(5):''}</span>`).join('');
+    `<span>${(i%5===0)?esc(x.d.slice(5)):''}</span>`).join('');
 }
 
 function apply(d){
@@ -1958,15 +1992,25 @@ function apply(d){
   else if(t<=40){cls='cold';word='弱势环境';advice='假突破比例高，建议只观察不动手。';}
   const scls=(s.level==='强情绪')?'hot':'cold';
   const stxt=s.zt!==undefined
-    ? `<span class="tag ${scls}">${s.level||'-'}</span>
+    ? `<span class="tag ${scls}">${esc(s.level||'-')}</span>
        <span style="color:var(--dim)">涨停 <b style="color:var(--red)">${s.zt}</b> ／ 炸板 ${s.zb} ／ 跌停 <b style="color:var(--green)">${s.dt}</b>
        ／ 炸板率 ${s.zb_rate}% ／ 最高 ${s.max_lb} 板</span>`
     : '';
+  const tr=d.trend||{};
+  const zcls = tr.zone==='正常区'?'hot':(tr.zone==='危险区'?'cold':'cold');
+  const trow = tr.zone ? `<div class="trow">
+      <span class="tag ${zcls}">${esc(tr.zone)}</span>
+      <span style="color:var(--dim)">上证 <b>${tr.idx}</b> ／ 生命线MA120 <b>${tr.ma120}</b>
+      ／ ${tr.above?'MA120上方':'MA120下方'} ${tr.gap>0?'+':''}${tr.gap}%
+      ／ DIF <b>${tr.dif}</b> ${tr.dif>=tr.dea?'≥':'<'} DEA <b>${tr.dea}</b>
+      → <b style="color:${tr.zone==='正常区'?'var(--green)':'var(--red)'}">${esc(tr.zone)}</b></span>
+      <span style="color:var(--amber)">今日建议　${esc(tr.advice)}</span>
+    </div>` : '';
   document.getElementById('regime').innerHTML=
     `<span class="tag ${cls}">${word}</span>
      <span>上涨 <b style="color:var(--red)">${m.up||0}</b> ／ 下跌 <b style="color:var(--green)">${m.down||0}</b>，温度 <b>${t}%</b></span>
      ${stxt}
-     <span style="color:var(--dim)">${advice}</span>`;
+     <span style="color:var(--dim)">${advice}</span>${trow}`;
   renderBoom(boom,document.getElementById('qm').value||'');
   renderChain(d.chain);
   renderGroup(d.group);
