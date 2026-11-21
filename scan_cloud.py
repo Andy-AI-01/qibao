@@ -18,6 +18,7 @@ HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
        "Connection": "close", "Referer": "https://finance.sina.com.cn/"}
 BARS = 200
 WORKERS = 16
+MIN_UNIVERSE = 1000  # 远低于全市场规模，用于拦截接口中断造成的残缺扫描
 
 
 def get(url, enc="utf-8", tries=2):
@@ -62,31 +63,92 @@ def ema(x, n):
 
 # ---------------- 数据源 ----------------
 def universe():
+    """股票清单（新浪 hs_a 分页）
+    单页最多重试 3 轮；暂时失败先记录并继续翻页，最后重试孤立失败页。
+    仍有缺页时中止，避免把不完整股票池发布成全市场结果。"""
     out, seen = [], set()
-    for page in range(1, 80):
-        u = ("http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
-             "Market_Center.getHQNodeData?page=%d&num=100&sort=mktcap&asc=0&node=hs_a" % page)
-        t = get(u, enc="gbk")
-        if not t or t.strip() in ("null", "[]"):
-            break
-        try:
-            arr = json.loads(t)
-        except Exception:
-            continue
-        if not arr:
-            break
-        for d in arr:
-            c, nm, sym = d.get("code"), d.get("name", ""), d.get("symbol", "")
+    bad_streak = 0
+    last_page = 0
+    failed_pages = []
+
+    def add_records(records):
+        for d in records:
+            c = str(d.get("code") or "")
+            nm = str(d.get("name") or "")
+            sym = str(d.get("symbol") or "")
             if not c or c in seen or c[0] in ("4", "8", "9") or "退" in nm:
                 continue
             seen.add(c)
             try:
-                _cap = float(d.get("mktcap") or 0)
+                cap = float(d.get("mktcap") or 0)
             except Exception:
-                _cap = 0.0
+                cap = 0.0
             out.append({"code": c, "market": 1 if sym.startswith("sh") else 0,
-                        "name": nm, "cap": _cap})
+                        "name": nm, "cap": cap})
+
+    for page in range(1, 80):
+        u = ("https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+             "Market_Center.getHQNodeData?page=%d&num=100&sort=mktcap&asc=0&node=hs_a" % page)
+        t, arr = None, None
+        for attempt in range(3):
+            t = get(u, enc="gbk")
+            if t is not None:
+                break
+            time.sleep(0.8 * (attempt + 1))
+        if t is not None:
+            if t.strip() == "[]":
+                break
+            try:
+                parsed = json.loads(t)
+                if isinstance(parsed, list) and all(isinstance(d, dict) for d in parsed):
+                    arr = parsed
+                else:
+                    print("  股票列表第%d页格式异常，跳过" % page, flush=True)
+            except Exception as e:
+                print("  股票列表第%d页解析失败：%s，跳过" % (page, e), flush=True)
+        if arr is None:
+            bad_streak += 1
+            failed_pages.append(page)
+            print("  股票列表第%d页拿不到（连续失败 %d 页），已获取 %d 只"
+                  % (page, bad_streak, len(out)), flush=True)
+            if bad_streak >= 3:
+                raise RuntimeError("股票列表连续 %d 页失败，已获取 %d 只" % (bad_streak, len(out)))
+            continue
+        bad_streak = 0
+        last_page = page
+        if not arr:
+            break
+        add_records(arr)
         time.sleep(0.05)
+    if failed_pages:
+        retry_failed = []
+        for page in failed_pages:
+            u = ("https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                 "Market_Center.getHQNodeData?page=%d&num=100&sort=mktcap&asc=0&node=hs_a" % page)
+            arr = None
+            for attempt in range(3):
+                t = get(u, enc="gbk")
+                if t is not None:
+                    try:
+                        parsed = json.loads(t)
+                        if (isinstance(parsed, list) and parsed
+                                and all(isinstance(d, dict) for d in parsed)):
+                            arr = parsed
+                            break
+                        if isinstance(parsed, list) and not parsed:
+                            break
+                    except Exception:
+                        pass
+                time.sleep(0.8 * (attempt + 1))
+            if arr is None:
+                retry_failed.append(page)
+                continue
+            add_records(arr)
+        if retry_failed:
+            raise RuntimeError("股票列表分页仍缺失：%s；已获取%d只" %
+                               (",".join(map(str, retry_failed)), len(out)))
+    out.sort(key=lambda item: item["cap"], reverse=True)
+    print("  股票清单 %d 只（翻到第 %d 页）" % (len(out), last_page), flush=True)
     return out
 
 
@@ -145,6 +207,44 @@ def klines(sym):
     if sum(ord(ch) for ch in sym) & 1:
         return _klines_tx(sym) or _klines_em(sym, tries=1)
     return _klines_em(sym, tries=1) or _klines_tx(sym)
+
+
+def index_trend():
+    """中期趋势三态（上证）：正常区 / 危险区 / 阴跌区
+    正常区 = 收盘 >= MA120
+    危险区 = MA120 下方 且 DIF >= DEA（均线空头但 MACD 已金叉 = 反弹到位，最容易二次杀）
+    阴跌区 = MA120 下方 且 DIF <  DEA（空头延续，只能做恐慌坑，追涨必死）
+    实测（1993-2026 全样本）：正常区指数未来20日 +0.97% / 阴跌区 +0.73% / 危险区 -0.12%
+    """
+    try:
+        b = klines("sh000001") or []
+    except Exception:
+        return None
+    if len(b) < 130:
+        return None
+    c = [float(x[2]) for x in b]
+    ma120 = sum(c[-120:]) / 120.0
+
+    def _ema(v, k):
+        out = [v[0]]
+        for x in v[1:]:
+            out.append(x * k + out[-1] * (1 - k))
+        return out
+    e12 = _ema(c, 2.0 / 13)
+    e26 = _ema(c, 2.0 / 27)
+    dif = [a - bb for a, bb in zip(e12, e26)]
+    dea = _ema(dif, 2.0 / 10)
+    cur, dl, al = c[-1], dif[-1], dea[-1]
+
+    if cur >= ma120:
+        zone, adv = "正常区", "正常做，按信号执行"
+    elif dl >= al:
+        zone, adv = "危险区", "只做「坑」，追涨全停"
+    else:
+        zone, adv = "阴跌区", "只做「坑」，横盘突破/二爆降级为观察"
+    return dict(zone=zone, advice=adv, idx=round(cur, 2), ma120=round(ma120, 2),
+                dif=round(dl, 2), dea=round(al, 2), above=cur >= ma120,
+                gap=round((cur / ma120 - 1) * 100, 2), date=b[-1][0])
 
 
 def bjnow():
@@ -2289,6 +2389,76 @@ def _cum(seq, k):
     return seq[-1] / seq[-1 - k] - 1.0
 
 
+def judge8(bars, rs5, amt_r):
+    """天时·地利·人和 8 条（满分 8）。返回 (分, [{"k":名,"ok":0/0.5/1,"v":说明}, ...])"""
+    n = len(bars)
+    if n < 30:
+        return 0.0, []
+    c = [float(b[2]) for b in bars]
+    hi = [float(b[3]) for b in bars]
+    lo = [float(b[4]) for b in bars]
+    vol = [float(b[5]) for b in bars]
+    chg = [0.0] + [(c[i] / c[i - 1] - 1) * 100 if c[i - 1] > 0 else 0.0 for i in range(1, n)]
+    amp = [0.0] + [((hi[i] - lo[i]) / c[i - 1] * 100) if c[i - 1] > 0 else 0.0 for i in range(1, n)]
+
+    # 启动日：从后往前第一个「单日涨≥7% 且 前10日累计<5%」= 横盘转主升
+    start = n - 6
+    for i in range(n - 2, max(0, n - 80) - 1, -1):
+        b10 = c[max(0, i - 10)]
+        if b10 > 0 and chg[i] >= 7 and (c[i] / b10 - 1) < 0.05:
+            start = i
+            break
+    alive = n - start
+    lo120 = min(c[max(0, n - 120):])
+    cum = (c[-1] / lo120 - 1) if lo120 > 0 else 0.0
+
+    it = []
+    # 天时1 穿越周期
+    cyc = sum(1 for i in range(start, n - 1) if chg[i] <= -5 and chg[i + 1] >= 3)
+    v1 = 1.0 if cyc >= 2 else (0.5 if cyc == 1 else 0.0)
+    it.append(dict(k="天时·穿越周期", ok=v1, v="存活 %d 日 · 大跌→修复循环 %d 次" % (alive, cyc)))
+    # 天时2 绕监管异动（总涨幅口径）
+    if cum >= 2.0:
+        d2, v2 = "渡劫成功×2（总涨幅 %+.0f%%，过 200%% 红线）" % (cum * 100), 1.0
+    elif cum >= 1.0:
+        d2, v2 = "渡劫成功×1（总涨幅 %+.0f%%，过 100%% 红线）" % (cum * 100), 1.0
+    elif cum >= 0.7:
+        d2, v2 = "逼近渡劫（总涨幅 %+.0f%%）" % (cum * 100), 0.5
+    else:
+        d2, v2 = "未渡劫（总涨幅 %+.0f%%）" % (cum * 100), 0.5
+    it.append(dict(k="天时·绕监管", ok=v2, v=d2))
+    # 天时3 不死
+    dn_i = [i for i in range(start, n - 1) if chg[i] <= -5]
+    fix = sum(1 for i in dn_i if chg[i + 1] > 0)
+    r3 = (fix / len(dn_i)) if dn_i else 0.0
+    v3 = 1.0 if (dn_i and r3 >= 0.5) else (0.5 if (dn_i and r3 >= 0.34) else (0.0 if dn_i else 0.5))
+    it.append(dict(k="天时·不死", ok=v3,
+                   v=("大跌后修复 %d/%d" % (fix, len(dn_i))) if dn_i else "样本期无大跌"))
+    # 地利1 生于回调（启动那根必须猛）
+    v4 = 1.0 if chg[start] >= 9 else (0.5 if chg[start] >= 7 else 0.0)
+    it.append(dict(k="地利·生于回调", ok=v4, v="启动日 %s 涨 %+.1f%%" % (bars[start][0], chg[start])))
+    # 地利2 持续超额
+    v5 = 1.0 if rs5 >= 10 else (0.5 if rs5 >= 3 else 0.0)
+    it.append(dict(k="地利·持续超额", ok=v5, v="5日跑赢大盘 %+.1f%%" % rs5))
+    # 人和1 最靓（成交额放大）
+    v6 = 1.0 if amt_r >= 1.8 else (0.5 if amt_r >= 1.4 else 0.0)
+    it.append(dict(k="人和·最靓", ok=v6, v="成交额是前20日的 %.2f 倍" % amt_r))
+    # 人和2 热度不减（连续放量）
+    amts = [c[i] * vol[i] for i in range(n)]
+    base20 = sum(amts[-23:-3]) / 20.0 if n >= 23 else (sum(amts) / max(1, n))
+    hot = sum(1 for i in range(n - 4, n) if base20 > 0 and amts[i] >= base20 * 1.3)
+    v7 = 1.0 if hot >= 3 else (0.5 if hot == 2 else 0.0)
+    it.append(dict(k="人和·热度不减", ok=v7, v="近4日有 %d 天成交额 >1.3倍" % hot))
+    # 人和3 走在分歧中（高振幅、无一字板）
+    big = sum(1 for i in range(n - 10, n) if amp[i] >= 10)
+    ratio3 = big / 10.0
+    no_one = all(amp[i] > 2.0 for i in range(n - 3, n))
+    v8 = 1.0 if (ratio3 >= 0.4 and no_one) else (0.5 if no_one else 0.0)
+    it.append(dict(k="人和·走在分歧", ok=v8,
+                   v="10%%+振幅占 %.0f%% · %s" % (ratio3 * 100, "无一字板" if no_one else "有一字板")))
+    return round(sum(x["ok"] for x in it), 1), it
+
+
 def core_scan(cands, snap=None, idx_sym="sh000001", topn=3):
     """core 的本质：市场跌的时候它涨（逆势）、成交额自己放大（吸走存量资金）、
     连续多天都在做这件事（持续）。不是振幅大就行 —— 天地板只是它的表现形式。"""
@@ -2398,6 +2568,10 @@ def core_scan(cands, snap=None, idx_sym="sh000001", topn=3):
         if sc < 9:
             continue
 
+        try:
+            _j8, _j8i = judge8(bars, rs5, amt_r)
+        except Exception:
+            _j8, _j8i = 0.0, []
         why = []
         if rs5 >= 2:
             why.append("5日跑赢大盘 %.1f%%" % rs5)
@@ -2416,6 +2590,7 @@ def core_scan(cands, snap=None, idx_sym="sh000001", topn=3):
             "amp": round(amp * 100, 1), "tov": round(tov, 1),
             "dn": dn, "win": win,
             "r5": round(r5 * 100, 1), "sc": round(sc, 1), "why": why,
+            "j8": _j8, "j8i": _j8i,
             "uni": 0,
         })
 
@@ -2642,6 +2817,8 @@ def build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb):
 
 def main():
     uni = universe()
+    if len(uni) < MIN_UNIVERSE:
+        raise RuntimeError("股票池数量异常（%d），拒绝生成不完整的全市场扫描结果" % len(uni))
     print("universe %d" % len(uni), flush=True)
     ind_map = industry_map(uni)      # 先取行业，避免后续请求把它限流
     print("行业映射 %d" % len(ind_map), flush=True)
@@ -3179,6 +3356,7 @@ def main():
                    trade_date=trade_date, universe=len(uni),
                    brief=brief,
         group=grp, pre=pre,
+                   trend=index_trend(),
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
