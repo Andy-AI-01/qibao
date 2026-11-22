@@ -657,9 +657,12 @@ function stockTable(stocks){
   return h+'</tbody></table></div>';
 }
 const SORTKEY={score:'score', lbc:'lbc', vol_ratio:'vol_ratio', chg:'chg', amt:'amt', cap:'cap', pos:'pos'};
-function link(code){ const p=(code[0]==='6'||code[0]==='9')?'sh':'sz';
-  return `https://quote.eastmoney.com/${p}${code}.html`; }
-function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function link(code){
+  const c=String(code==null?'':code).trim();
+  if(!/^\d{6}$/.test(c)) return '#';          // 只认六位数字，防止脏数据拼进 URL
+  const p=(c[0]==='6'||c[0]==='9')?'sh':'sz';
+  return `https://quote.eastmoney.com/${p}${c}.html`; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function fmtT(t){ if(!t) return '-'; const s=String(t).padStart(6,'0'); return s.slice(0,2)+':'+s.slice(2,4); }
 
@@ -890,7 +893,7 @@ function renderLadder(L, leaders){
        '<div style="color:var(--red);font-weight:700;font-size:12.5px;margin-bottom:4px">★ 今日龙头（五维无短板：连板≥3 ／ 0炸板 ／ 10点前封板 ／ 封单≥流通1% ／ 强催化）</div>';
     for(const z of leaders){
       const full = z.score>=6;
-      h+=`<div style="line-height:2"><a href="${link(z.code)}" target="_blank" class="name" style="color:#ffd166">${full?'★★★':'★★'} ${z.name}</a>`+
+      h+=`<div style="line-height:2"><a href="${link(z.code)}" target="_blank" rel="noopener noreferrer" class="name" style="color:#ffd166">${full?'★★★':'★★'} ${z.name}</a>`+
          `<span style="color:var(--dim);font-size:11.5px;margin-left:8px">${z.code} · ${z.ind} · ${z.lb}板 · ${fmtT(z.fbt)}封 · 封单${z.fund}亿(占流通${z.seal}%) · ${z.zbc}炸 · 换手${z.hs}% · ${z.bt} · <b style="color:${full?'#ffd166':'#8b98ad'}">${z.score}/6</b>${z.miss&&z.miss.length?(' · 缺:'+z.miss.join('/')):''}</span></div>`;
     }
     h+='</div>';
@@ -905,8 +908,8 @@ function renderLadder(L, leaders){
         ? `<span style="color:#5a6779;font-size:11px;margin:0 14px 0 6px">${z.ind||''} · ${fmtT(z.fbt)}封 · ${z.fund}亿 · ${z.zbc}炸 · 换手${z.hs}% · ${z.bt||''}</span>`
         : `<span style="color:#5a6779;font-size:11px;margin-right:14px">${z.ind||''}</span>`;
       const nm = isL
-        ? `<a href="${link(z.code)}" target="_blank" class="name" style="color:#ffd166;font-weight:700">★${z.name}</a>`
-        : `<a href="${link(z.code)}" target="_blank" class="name">${z.name}</a>`;
+        ? `<a href="${link(z.code)}" target="_blank" rel="noopener noreferrer" class="name" style="color:#ffd166;font-weight:700">★${z.name}</a>`
+        : `<a href="${link(z.code)}" target="_blank" rel="noopener noreferrer" class="name">${z.name}</a>`;
       return `<span style="display:inline-block;white-space:nowrap">${nm}${detail}</span>`;
     });
     const LIM = (k==='1' ? (window.innerWidth<760?8:14) : 12);
@@ -1199,7 +1202,7 @@ function coreCard(r,grp){
   const hot=grp.k==='坑'&&!isST;
   return `<div class="corecard${hot?' hot':''}">
     <div class="cc-h">
-      <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
+      <a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${r.code}</a>
       <b class="cc-name">${esc(r.name||'')}</b>
       <span class="cc-chg ${r.chg>0?'up':'down'}">${r.chg>0?'+':''}${r.chg.toFixed(2)}%</span>
       <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
@@ -1598,7 +1601,7 @@ function renderPit(list){
     const zt=(r.chg<=-9.5)?'跌停':(r.chg<=-5?'大跌':'');
     h+=`<div class="pitcard">
       <div class="cc-h">
-        <a class="code" href="${link(r.code)}" target="_blank">${r.code}</a>
+        <a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${r.code}</a>
         <b class="cc-name">${r.name}</b>
         <span class="cc-chg down">${r.chg.toFixed(2)}%</span>
         <span class="cc-sc">${r.score>0?'+':''}${r.score}</span>
@@ -1751,7 +1754,7 @@ function lhbTable(arr, cap){
     const nc=x.net>=0?'up':'down';
     const rc=x.nrat>=15?'nrat-hi':(x.nrat>=8?'nrat-mid':(x.nrat<0?'nrat-lo':''));
     t+=`<tr>
-      <td><a class="code" href="${link(x.c)}" target="_blank">${x.c}</a></td>
+      <td><a class="code" href="${link(x.c)}" target="_blank" rel="noopener noreferrer">${x.c}</a></td>
       <td class="nm">${esc(x.n)}</td>
       <td class="r ${x.chg>=0?'up':'down'}">${x.chg>=0?'+':''}${x.chg.toFixed(2)}%</td>
       <td class="r ${nc}">${x.net>=0?'+':''}${x.net.toFixed(0)}</td>
@@ -1804,7 +1807,7 @@ function renderBoom(rows,q){
              : r.track==='Y'? '<span class="pill m" title="小市值低价低位·妖股档">妖</span>' : '';
     const _dim = WEAK && r.tags.indexOf('横盘突破')>=0 ? ' class="dimrow"' : '';
     h+=`<tr${_dim}>
-      <td><a class="code" href="${link(r.code)}" target="_blank">${r.code}</a></td>
+      <td><a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${r.code}</a></td>
       <td><span class="name">${tr}${esc(r.name||'')}</span></td>
       <td class="hm" style="text-align:left;color:var(--dim)">${r.ind||'-'}</td>
       <td class="hm ${(r.lbc||0)>=3?'up':''}">${r.lbc? r.lbc+'板' : (r.ztj||'-')}</td>
@@ -1884,7 +1887,7 @@ function renderAuction(a){
     h+='<div class="ausub">空间龙（量价是否延续昨日强势）</div>';
     a.dragons.forEach(d=>{
       h+=`<div class="audragon">
-        <a class="code" href="${link(d.code)}" target="_blank">${d.code}</a>
+        <a class="code" href="${link(d.code)}" target="_blank" rel="noopener noreferrer">${d.code}</a>
         <span class="name">${esc(d.name)}</span>
         <span class="pill w">${d.lb}板</span>
         <span class="${d.pct>0?'up':'down'}" style="font-weight:700">${d.pct>0?'+':''}${d.pct}%</span>
@@ -1926,7 +1929,7 @@ function renderAuction(a){
   IT.slice(0,60).forEach(r=>{
     const [t,c]=pick(r.pct,r.ar);
     h+=`<tr>
-      <td><a class="code" href="${link(r.code)}" target="_blank">${r.code}</a></td>
+      <td><a class="code" href="${link(r.code)}" target="_blank" rel="noopener noreferrer">${r.code}</a></td>
       <td><span class="name">${esc(r.name)}</span></td>
       <td class="hm">${r.lb>=2?`<span class="pill r">${r.lb}板</span>`:'首板'}</td>
       <td>${r.op.toFixed(2)}</td>
