@@ -2816,6 +2816,18 @@ def build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb):
 
 
 def main():
+    # 中期趋势先算：等 5000 只票抓完，行情源已被限流，指数 K 线基本拉不到
+    trend = None
+    try:
+        trend = index_trend()
+    except Exception as e:
+        print("  中期趋势计算失败：%s" % e, flush=True)
+    if trend:
+        print("  中期趋势 %s（上证 %s / MA120 %s，DIF %s vs DEA %s）"
+              % (trend["zone"], trend["idx"], trend["ma120"], trend["dif"], trend["dea"]), flush=True)
+    else:
+        print("  中期趋势：指数日线取不到，本次不显示", flush=True)
+
     uni = universe()
     if len(uni) < MIN_UNIVERSE:
         raise RuntimeError("股票池数量异常（%d），拒绝生成不完整的全市场扫描结果" % len(uni))
@@ -3356,7 +3368,7 @@ def main():
                    trade_date=trade_date, universe=len(uni),
                    brief=brief,
         group=grp, pre=pre,
-                   trend=index_trend(),
+                   trend=trend,
                    market=dict(up=up, down=dn, total=len(snap),
                                temp=round(100.0 * up / max(1, up + dn), 1),
                                indexes=indexes()),
