@@ -2004,7 +2004,8 @@ function apply(d){
       ／ DIF <b>${tr.dif}</b> ${tr.dif>=tr.dea?'≥':'<'} DEA <b>${tr.dea}</b>
       → <b style="color:${tr.zone==='正常区'?'var(--green)':'var(--red)'}">${tr.zone}</b></span>
       <span style="color:var(--amber)">今日建议　${tr.advice}</span>
-    </div>` : '';
+    </div>` : `<div class="trow"><span class="tag cold">趋势未知</span>
+      <span style="color:var(--dim)">本次没取到指数日线（行情源限流），中期趋势无法判定 —— 按「阴跌区」处理更安全</span></div>`;
   document.getElementById('regime').innerHTML=
     `<span class="tag ${cls}">${word}</span>
      <span>上涨 <b style="color:var(--red)">${m.up||0}</b> ／ 下跌 <b style="color:var(--green)">${m.down||0}</b>，温度 <b>${t}%</b></span>
