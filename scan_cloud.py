@@ -17,7 +17,8 @@ HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
        "Connection": "close", "Referer": "https://finance.sina.com.cn/"}
 BARS = 200
-WORKERS = 16
+WORKERS = 8
+RETRY_WORKERS = 4
 MIN_UNIVERSE = 1000  # 远低于全市场规模，用于拦截接口中断造成的残缺扫描
 
 
@@ -201,12 +202,19 @@ def _klines_tx(sym):
         return None
 
 
-def klines(sym):
-    """双源交错：代码偶数优先东财、奇数优先腾讯，失败互备。
-    两个源各承担一半压力，单源限流时不至于全灭。"""
-    if sum(ord(ch) for ch in sym) & 1:
-        return _klines_tx(sym) or _klines_em(sym, tries=1)
-    return _klines_em(sym, tries=1) or _klines_tx(sym)
+def klines(sym, retry=False, with_source=False):
+    """双源交错；补抓时换源优先并增加东财重试，减轻瞬时限流影响。"""
+    sources = ["tx", "em"] if sum(ord(ch) for ch in sym) & 1 else ["em", "tx"]
+    if retry:
+        sources.reverse()
+    for source in sources:
+        if source == "em":
+            bars = _klines_em(sym, tries=2 if retry else 1)
+        else:
+            bars = _klines_tx(sym)
+        if isinstance(bars, (list, tuple)) and len(bars) >= 20:
+            return (bars, source) if with_source else bars
+    return (None, None) if with_source else None
 
 
 def index_trend():
@@ -2870,25 +2878,62 @@ def main():
             if chg > 0:
                 CYC["up"][k] += 1
 
-    def work(s):
+    def work(s, retry=False):
         sym = ("sh" if s["market"] == 1 else "sz") + s["code"]
-        return s, klines(sym)
+        bars, source = klines(sym, retry=retry, with_source=True)
+        return s, bars, source
+
+    def consume(s, bars):
+        if (not isinstance(bars, (list, tuple)) or len(bars) < 20
+                or not isinstance(bars[-1], (list, tuple)) or not bars[-1]
+                or str(bars[-1][0]) < "2020"):
+            return False
+        accum(bars, s["code"])
+        r = analyse(bars)
+        if r and r["date"] == bars[-1][0]:
+            r.update(code=s["code"], name=s["name"])
+            rows.append(r)
+        return True
 
     done = 0
     ok_fetch = 0
+    source_ok = {"em": 0, "tx": 0}
+    failed = []
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        for s, bars in ex.map(work, uni):
+        for s, bars, source in ex.map(work, uni):
             done += 1
             if done % 800 == 0:
                 print("  %d/%d" % (done, len(uni)), flush=True)
-            if not bars or bars[-1][0] < "2020":
-                continue
-            ok_fetch += 1
-            accum(bars, s["code"])
-            r = analyse(bars)
-            if r and r["date"] == bars[-1][0]:
-                r.update(code=s["code"], name=s["name"])
-                rows.append(r)
+            if consume(s, bars):
+                ok_fetch += 1
+                source_ok[source] += 1
+            else:
+                failed.append(s)
+
+    if failed:
+        print("  首轮行情缺失 %d 只，降并发换源补抓…" % len(failed), flush=True)
+        recovered = 0
+        retry_source_ok = {"em": 0, "tx": 0}
+
+        def retry_work(s):
+            return work(s, retry=True)
+
+        with ThreadPoolExecutor(max_workers=RETRY_WORKERS) as ex:
+            for i, (s, bars, source) in enumerate(ex.map(retry_work, failed), 1):
+                if consume(s, bars):
+                    ok_fetch += 1
+                    recovered += 1
+                    retry_source_ok[source] += 1
+                if i % 400 == 0:
+                    print("  补抓 %d/%d" % (i, len(failed)), flush=True)
+        source_ok["em"] += retry_source_ok["em"]
+        source_ok["tx"] += retry_source_ok["tx"]
+        print("  补抓恢复 %d/%d；东财 %d、腾讯 %d、仍缺 %d" %
+              (recovered, len(failed), retry_source_ok["em"], retry_source_ok["tx"],
+               len(failed) - recovered), flush=True)
+
+    print("  行情来源成功：东财 %d、腾讯 %d（合计 %d/%d）" %
+          (source_ok["em"], source_ok["tx"], ok_fetch, len(uni)), flush=True)
 
     ratio = ok_fetch / max(1, len(uni))
     err = ""
