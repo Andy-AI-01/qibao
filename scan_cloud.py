@@ -8,7 +8,7 @@
 """
 import os, sys, io, json, time, re, urllib.request, urllib.parse, datetime
 from collections import deque, defaultdict
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DOCS = os.path.join(BASE, "docs")
@@ -17,16 +17,18 @@ HDR = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.
                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
        "Connection": "close", "Referer": "https://finance.sina.com.cn/"}
 BARS = 200
-WORKERS = 8
-RETRY_WORKERS = 4
+WORKERS = 10
+RETRY_WORKERS = 8
+KLINE_TIMEOUT = 2.5
+RETRY_TIMEOUT = 3.0
 MIN_UNIVERSE = 1000  # 远低于全市场规模，用于拦截接口中断造成的残缺扫描
 
 
-def get(url, enc="utf-8", tries=2):
+def get(url, enc="utf-8", tries=2, timeout=25):
     for i in range(tries):
         try:
             return urllib.request.urlopen(
-                urllib.request.Request(url, headers=HDR), timeout=25).read().decode(enc, "ignore")
+                urllib.request.Request(url, headers=HDR), timeout=timeout).read().decode(enc, "ignore")
         except Exception:
             time.sleep(0.5 * (i + 1))
     return None
@@ -164,7 +166,7 @@ EM_HDR = dict(HDR)
 EM_HDR["Referer"] = "https://quote.eastmoney.com/"
 
 
-def _klines_em(sym, tries=2):
+def _klines_em(sym, tries=2, timeout=20):
     """东财日线：返回腾讯同构 [[date,o,c,h,l,vol], ...]，vol 单位=手"""
     u = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s"
          "&fields1=f1,f2,f3,f4,f5&fields2=f51,f52,f53,f54,f55,f56,f57"
@@ -172,7 +174,7 @@ def _klines_em(sym, tries=2):
     for i in range(tries):
         try:
             t = urllib.request.urlopen(
-                urllib.request.Request(u, headers=EM_HDR), timeout=20).read().decode("utf-8", "ignore")
+                urllib.request.Request(u, headers=EM_HDR), timeout=timeout).read().decode("utf-8", "ignore")
             ks = ((json.loads(t) or {}).get("data") or {}).get("klines") or []
             out = []
             for line in ks:
@@ -187,9 +189,9 @@ def _klines_em(sym, tries=2):
     return None
 
 
-def _klines_tx(sym):
+def _klines_tx(sym, timeout=25):
     u = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=%s,day,,,%d,qfq" % (sym, BARS)
-    t = get(u)
+    t = get(u, tries=1, timeout=timeout)
     if not t:
         return None
     try:
@@ -202,16 +204,43 @@ def _klines_tx(sym):
         return None
 
 
+def _klines_sina(sym, timeout=25):
+    """新浪财经日K：无反爬、纯 JSON。返回腾讯同构 [[date,o,c,h,l,vol], ...]（vol 已换成手）。"""
+    u = ("https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+         "CN_MarketData.getKLineData?symbol=%s&scale=240&ma=no&datalen=%d" % (sym, BARS))
+    t = get(u, tries=1, timeout=timeout)
+    if not t:
+        return None
+    try:
+        arr = json.loads(t)
+        if not isinstance(arr, list) or len(arr) < 20:
+            return None
+        out = []
+        for x in arr:
+            out.append([x["day"],
+                        float(x["open"]), float(x["close"]),
+                        float(x["high"]), float(x["low"]),
+                        float(x["volume"]) / 100.0])    # 股 -> 手，对齐腾讯口径
+        return out
+    except Exception:
+        return None
+
+
 def klines(sym, retry=False, with_source=False):
-    """双源交错；补抓时换源优先并增加东财重试，减轻瞬时限流影响。"""
-    sources = ["tx", "em"] if sum(ord(ch) for ch in sym) & 1 else ["em", "tx"]
+    """双源交错；补抓时只做一次短超时请求，避免失败个股拖垮整轮扫描。"""
+    ALL = ("tx", "em", "sina")
+    h = sum(ord(ch) for ch in sym) % 3
+    sources = list(ALL[h:] + ALL[:h])          # 按代码散列错开，三个源均摊
     if retry:
         sources.reverse()
-    for source in sources:
+    timeout = RETRY_TIMEOUT if retry else KLINE_TIMEOUT
+    for source in (sources[:1] if retry else sources):
         if source == "em":
-            bars = _klines_em(sym, tries=2 if retry else 1)
+            bars = _klines_em(sym, tries=1, timeout=timeout)
+        elif source == "sina":
+            bars = _klines_sina(sym, timeout=timeout)
         else:
-            bars = _klines_tx(sym)
+            bars = _klines_tx(sym, timeout=timeout)
         if isinstance(bars, (list, tuple)) and len(bars) >= 20:
             return (bars, source) if with_source else bars
     return (None, None) if with_source else None
@@ -2842,6 +2871,32 @@ def main():
     print("universe %d" % len(uni), flush=True)
     ind_map = industry_map(uni)      # 先取行业，避免后续请求把它限流
     print("行业映射 %d" % len(ind_map), flush=True)
+    # 先拉快照（60 只/请求，几十个请求就完），用来筛掉低成交低波动的僵尸股，
+    # 否则 5000+ 只票每只两次请求超时，必然撞 35 分钟上限。
+    def _sym_of(s):
+        return ("sh" if s["market"] == 1 else "sz") + s["code"]
+
+    print("  快照拉取...", flush=True)
+    snap_all = snapshot([_sym_of(s) for s in uni])
+    print("  快照 %d/%d" % (len(snap_all), len(uni)), flush=True)
+
+    active = []
+    skipped = 0
+    for s in uni:
+        q = snap_all.get(s["code"])          # snapshot 的 key 是纯代码，不带 sh/sz 前缀
+        if not q:
+            active.append(s)                       # 快照没拿到的，照抓
+            continue
+        amt = q.get("amt") or 0
+        chg = q.get("chg") or 0
+        # 成交额 5000 万以上，或涨跌幅超 5%（异动股，坑/炸板基本都在这批里）
+        if amt >= 5e7 or abs(chg) >= 5.0:
+            active.append(s)
+        else:
+            skipped += 1
+    print("  活跃股 %d / 全市场 %d（跳过 %d 只低成交低波动）"
+          % (len(active), len(uni), skipped), flush=True)
+
     rows = []
     CYC = {k: defaultdict(int) for k in ("zt", "dt", "up", "tot", "lb")}
 
@@ -2881,6 +2936,7 @@ def main():
     def work(s, retry=False):
         sym = ("sh" if s["market"] == 1 else "sz") + s["code"]
         bars, source = klines(sym, retry=retry, with_source=True)
+        time.sleep(0.03)            # 轻微让一下：并发 10 时约 300 次/秒以下，不容易被掐
         return s, bars, source
 
     def consume(s, bars):
@@ -2897,23 +2953,44 @@ def main():
 
     done = 0
     ok_fetch = 0
-    source_ok = {"em": 0, "tx": 0}
+    source_ok = {"em": 0, "tx": 0, "sina": 0}
     failed = []
+    fail_streak = 0
+    aborted = False
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        for s, bars, source in ex.map(work, uni):
+        futs = {ex.submit(work, s): s for s in active}
+        for fut in as_completed(futs):
+            st = futs[fut]
+            try:
+                _, bars, source = fut.result()
+            except Exception:
+                bars, source = None, None
             done += 1
             if done % 800 == 0:
-                print("  %d/%d" % (done, len(uni)), flush=True)
-            if consume(s, bars):
+                print("  %d/%d" % (done, len(active)), flush=True)
+            if consume(st, bars):
                 ok_fetch += 1
                 source_ok[source] += 1
+                fail_streak = 0
             else:
-                failed.append(s)
+                failed.append(st)
+                fail_streak += 1
+            if fail_streak >= 300:
+                print("!! 连续 %d 只抓取失败，行情源疑似中断，提前收工（已抓 %d 只）"
+                      % (fail_streak, done), flush=True)
+                aborted = True
+                break
+        if aborted:
+            for f in futs:
+                f.cancel()
 
     if failed:
-        print("  首轮行情缺失 %d 只，降并发换源补抓…" % len(failed), flush=True)
+        if len(failed) > 800:
+            print("  首轮缺失 %d 只，超过补抓上限，只补 %d 只" % (len(failed), 800), flush=True)
+            failed = failed[:800]
+        print("  首轮行情缺失 %d 只，短超时换源补抓…" % len(failed), flush=True)
         recovered = 0
-        retry_source_ok = {"em": 0, "tx": 0}
+        retry_source_ok = {"em": 0, "tx": 0, "sina": 0}
 
         def retry_work(s):
             return work(s, retry=True)
@@ -2927,22 +3004,23 @@ def main():
                 if i % 400 == 0:
                     print("  补抓 %d/%d" % (i, len(failed)), flush=True)
         source_ok["em"] += retry_source_ok["em"]
+        source_ok["sina"] += retry_source_ok["sina"]
         source_ok["tx"] += retry_source_ok["tx"]
-        print("  补抓恢复 %d/%d；东财 %d、腾讯 %d、仍缺 %d" %
+        print("  补抓恢复 %d/%d；东财 %d、腾讯 %d、新浪 %d、仍缺 %d" %
               (recovered, len(failed), retry_source_ok["em"], retry_source_ok["tx"],
-               len(failed) - recovered), flush=True)
+               retry_source_ok["sina"], len(failed) - recovered), flush=True)
 
-    print("  行情来源成功：东财 %d、腾讯 %d（合计 %d/%d）" %
-          (source_ok["em"], source_ok["tx"], ok_fetch, len(uni)), flush=True)
+    print("  行情来源成功：东财 %d、腾讯 %d、新浪 %d（合计 %d/%d）" %
+          (source_ok["em"], source_ok["tx"], source_ok["sina"], ok_fetch, len(active)), flush=True)
 
-    ratio = ok_fetch / max(1, len(uni))
+    ratio = ok_fetch / max(1, len(active))
     err = ""
     if ratio < 0.5:
-        err = "行情数据抓取失败（成功 %d/%d），本次结果不可信，请稍后重跑" % (ok_fetch, len(uni))
+        err = "行情数据抓取失败（成功 %d/%d），本次结果不可信，请稍后重跑" % (ok_fetch, len(active))
         print("!! " + err, flush=True)
 
     name_of = {x["code"]: x.get("name") or x["code"] for x in uni}
-    snap = snapshot([("sh" if s["market"] == 1 else "sz") + s["code"] for s in uni])
+    snap = snap_all
     up = sum(1 for q in snap.values() if q["chg"] > 0)
     dn = sum(1 for q in snap.values() if q["chg"] < 0)
     capmap = {u["code"]: u.get("cap", 0) for u in uni}
