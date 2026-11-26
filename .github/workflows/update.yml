@@ -76,6 +76,22 @@ jobs:
             python -c "import json;d=json.load(open('docs/data.json',encoding='utf-8'));print('trade_date=%s boom=%d error=%s'%(d.get('trade_date'),len(d.get('boom') or []),(d.get('error') or '')[:160]))"
           fi
 
+      - name: push
+        continue-on-error: true
+        env:
+          WECHAT_WEBHOOK_URL: ${{ secrets.WECHAT_WEBHOOK_URL }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          # 只在收盘定稿前后推（北京时间 15:25-16:15），盘中每 15 分钟那次不推
+          H=$((10#$(TZ=Asia/Shanghai date +%H%M)))
+          if [ "$H" -ge 1525 ] && [ "$H" -le 1615 ]; then
+            python scan_cloud.py --push || echo "push failed (not fatal)"
+          else
+            echo "not push window ($H), skip"
+          fi
+
       - name: commit
         env:
           AUCTION_UPDATED: ${{ steps.auction.outputs.updated }}
