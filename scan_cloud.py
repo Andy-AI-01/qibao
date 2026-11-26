@@ -2867,6 +2867,15 @@ def _post_json(url, obj, timeout=12):
         return False
 
 
+def _tg_fmt(s):
+    """把 markdown 转成 Telegram 的 HTML（**粗体** → <b>，## 标题 → ▌）。"""
+    s = (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
+    s = re.sub(r"^#{2,3}\s*(.+)$", r"▌<b>\1</b>", s, flags=re.M)
+    s = re.sub(r"^&gt;\s?", "│ ", s, flags=re.M)
+    return s
+
+
 def push_text(text):
     """按环境变量里配置的渠道逐个推；返回成功渠道数。"""
     ok = 0
@@ -2884,7 +2893,8 @@ def push_text(text):
     tc = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
     if tk and tc:
         if _post_json("https://api.telegram.org/bot%s/sendMessage" % tk,
-                      {"chat_id": tc, "text": text, "disable_web_page_preview": True}):
+                      {"chat_id": tc, "text": _tg_fmt(text), "parse_mode": "HTML",
+                       "disable_web_page_preview": True}):
             ok += 1
             print("  ✔ Telegram", flush=True)
     return ok
