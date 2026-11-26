@@ -2852,6 +2852,192 @@ def build_brief(zt, zb, dtp, tblk, tdet, ind_top, stage, rotor, sent, max_lb):
                 stage=stage, rotor=rotor)
 
 
+
+# ---------------- 收盘推送 ----------------
+def _post_json(url, obj, timeout=12):
+    try:
+        data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (compatible; QibaoRadar/1.0)"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return 200 <= r.status < 300
+    except Exception as e:
+        print("  推送请求失败：%s" % str(e)[:100], flush=True)
+        return False
+
+
+def push_text(text):
+    """按环境变量里配置的渠道逐个推；返回成功渠道数。"""
+    ok = 0
+    wx = (os.environ.get("WECHAT_WEBHOOK_URL") or "").strip()
+    if wx:
+        if _post_json(wx, {"msgtype": "markdown", "markdown": {"content": text}}):
+            ok += 1
+            print("  ✔ 企业微信", flush=True)
+    fs = (os.environ.get("FEISHU_WEBHOOK_URL") or "").strip()
+    if fs:
+        if _post_json(fs, {"msg_type": "text", "content": {"text": text}}):
+            ok += 1
+            print("  ✔ 飞书", flush=True)
+    tk = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    tc = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+    if tk and tc:
+        if _post_json("https://api.telegram.org/bot%s/sendMessage" % tk,
+                      {"chat_id": tc, "text": text, "disable_web_page_preview": True}):
+            ok += 1
+            print("  ✔ Telegram", flush=True)
+    return ok
+
+
+def _fmt(v, nd=2, sign=True):
+    try:
+        v = float(v)
+    except Exception:
+        return "--"
+    return ("%+.*f" if sign else "%.*f") % (nd, v)
+
+
+def build_push(d):
+    """把 data.json 压成一条手机能一眼看完的消息。"""
+    L = []
+    td = d.get("trade_date") or ""
+    m = d.get("market") or {}
+    s = d.get("sentiment") or {}
+    t = d.get("trend")
+    if not isinstance(t, dict):
+        t = {}                      # 兼容旧数据（trend 曾被量能文案占成字符串）
+    stage = d.get("stage") or ""
+    temp = m.get("temp") or 0
+    up, dn = m.get("up") or 0, m.get("down") or 0
+
+    if temp >= 60:
+        env = "强势"
+    elif temp >= 40:
+        env = "震荡"
+    elif temp >= 25:
+        env = "弱势"
+    else:
+        env = "冰点"
+
+    L.append("## 🎯 起爆雷达 %s" % td)
+    L.append("> **%s** · 温度 %.1f%% · 涨%s/跌%s" % (env, temp, up, dn))
+    L.append("> 涨停 %s / 炸板 %s / 跌停 %s · 最高 %s 板 · 情绪 %s"
+             % (s.get("zt", 0), s.get("zb", 0), s.get("dt", 0),
+                s.get("max_lb", 0), stage or "--"))
+
+    if t.get("zone"):
+        L.append("> 中期趋势 **%s**（上证 %s / MA120 %s，%s%%）"
+                 % (t.get("zone"), t.get("idx"), t.get("ma120"), _fmt(t.get("gap"), 1)))
+        if t.get("advice"):
+            L.append("> 今日建议：%s" % t["advice"])
+
+    name_map = {}
+    for r in (d.get("boom") or []) + (d.get("pits") or []):
+        if r.get("code"):
+            name_map[r["code"]] = r.get("name") or ""
+
+    # ---- 唯一核心 ----
+    cores = (d.get("group") or {}).get("cores") or []
+    if cores:
+        c = cores[0]
+        L.append("")
+        _nm = (name_map.get(c.get("c")) or "").strip()
+        _cd = c.get("c") or ""
+        L.append("### ★ 唯一核心 %s" % (("%s %s" % (_nm, _cd)) if _nm and _nm != _cd else _cd))
+        bits = []
+        if c.get("sc") is not None:
+            bits.append("得分 %s" % c.get("sc"))
+        if c.get("rs5") is not None:
+            bits.append("5日超额 %s%%" % _fmt(c.get("rs5"), 1))
+        if c.get("amt_r") is not None:
+            bits.append("成交额×%.2f" % float(c.get("amt_r") or 0))
+        if c.get("amp") is not None:
+            bits.append("振幅 %.0f%%" % float(c.get("amp") or 0))
+        if c.get("tov") is not None:
+            bits.append("换手 %.1f%%" % float(c.get("tov") or 0))
+        if bits:
+            L.append("> " + " · ".join(bits))
+        j8i = c.get("j8i") or []
+        if j8i:
+            stars = "".join("★" if x.get("ok") == 1 else ("☆" if x.get("ok") == 0.5 else "·")
+                            for x in j8i)
+            L.append("> 天时地利人和 %s  %s/%s" % (stars, c.get("j8", "-"), len(j8i)))
+
+    # ---- 核心起爆池 ----
+    core = d.get("core") or []
+    if not core:
+        L.append("")
+        L.append("### 核心起爆池 今日无信号")
+        L.append("> 生命线/平台强破/底共振 全部未触发，属于正常的空窗日")
+    if core:
+        L.append("")
+        L.append("### 核心起爆池 %d 只" % len(core))
+        for r in core[:6]:
+            tg = "/".join([x for x in (r.get("tags") or []) if x not in ("新低", "爆")][:2])
+            L.append("- %s %s **%s%%** %s"
+                     % (r.get("name") or "", r.get("code") or "",
+                        _fmt(r.get("chg"), 2), ("[%s]" % tg) if tg else ""))
+
+    # ---- 跌停坑 ----
+    pits = d.get("pits") or []
+    if pits:
+        sp = sorted(pits, key=lambda x: float(x.get("chg") or 0))
+        L.append("")
+        L.append("### 跌停坑 %d 只" % len(pits))
+        L.append("> 冰点/退潮期这些是「等」不是「买」，按「跌得最狠+换手最大」挑 3-5 只先观察")
+        for r in sp[:5]:
+            _hs = float(r.get("hs") or 0)
+            L.append("- %s %s **%s%%**%s"
+                     % (r.get("name") or "", r.get("code") or "",
+                        _fmt(r.get("chg"), 2),
+                        (" 换手%.1f%%" % _hs) if _hs > 0 else ""))
+
+    # ---- 板块 ----
+    picks = d.get("picks") or []
+    if picks:
+        L.append("")
+        L.append("### 板块推荐")
+        for p in picks[:3]:
+            L.append("- **%s** %s · 涨停%s家 · 最高%s板 · %s"
+                     % (p.get("name") or "", "%s/10" % p.get("score"),
+                        p.get("zt", 0), p.get("max_lb", 0), p.get("level") or ""))
+
+    # ---- 游资 ----
+    hot = ((d.get("lhb_brief") or {}).get("hot") or [])
+    if hot:
+        L.append("")
+        L.append("### 活跃游资")
+        L.append("> " + " · ".join("%s %s只%.2f亿" % (h.get("tag"), h.get("n"), (h.get("amt") or 0) / 1e4)
+                                   for h in hot[:5]))
+
+    # ---- 尾巴 ----
+    boom = d.get("boom") or []
+    L.append("")
+    L.append("全部信号 **%d** 条 → [打开雷达](https://andy-ai-01.github.io/qibao/)" % len(boom))
+    if d.get("error"):
+        L.append("")
+        L.append("> ⚠ %s" % d["error"])
+    return "\n".join(L)
+
+
+def do_push():
+    """读已定稿的 docs/data.json 并推送。"""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "data.json")
+    if not os.path.exists(p):
+        print("  data.json 不存在，跳过推送", flush=True)
+        return
+    try:
+        d = json.load(io.open(p, encoding="utf-8"))
+    except Exception as e:
+        print("  data.json 读不出来：%s" % str(e)[:80], flush=True)
+        return
+    txt = build_push(d)
+    print("  推送内容 %d 字" % len(txt), flush=True)
+    n = push_text(txt)
+    print("  推送完成：%d 个渠道" % n if n else "  推送跳过：没配置 WECHAT_WEBHOOK_URL / FEISHU_WEBHOOK_URL / TELEGRAM_*", flush=True)
+
+
 def main():
     # 中期趋势先算：等 5000 只票抓完，行情源已被限流，指数 K 线基本拉不到
     trend = None
@@ -3246,7 +3432,7 @@ def main():
     amt_today = tot_amt.get(td, 0.0) / 1e8
     amt_avg = (sum(tot_amt[d] for d in prev) / len(prev) / 1e8) if prev else amt_today
     ratio = (amt_today / amt_avg) if amt_avg else 1.0
-    trend = "增量" if ratio >= 1.2 else ("存量" if ratio <= 1.05 else "平衡")
+    mtrend = "增量" if ratio >= 1.2 else ("存量" if ratio <= 1.05 else "平衡")   # 量能态势（别占用 trend，那是中期趋势）
 
     # 轮动速度：最近6日"涨停第一"的行业换了几个
     tops = []
@@ -3424,7 +3610,7 @@ def main():
 
     flow = dict(inflow=inflow, outflow=outflow,
                 market=dict(amt=round(amt_today, 0), amt20=round(amt_avg, 0),
-                            ratio=round(ratio, 2), trend=trend),
+                            ratio=round(ratio, 2), trend=mtrend),
                 rotation=dict(tops=tops[-6:], changes=changes, rotor=rotor,
                             top_n=top_n, cur=cur))
 
@@ -3521,6 +3707,8 @@ def main():
 if __name__ == "__main__":
     if "--auction" in sys.argv:
         do_auction(None)
+    elif "--push" in sys.argv:
+        do_push()
     elif "--lhb" in sys.argv:
         do_lhb()
     else:
